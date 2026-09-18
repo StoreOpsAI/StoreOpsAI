@@ -75,4 +75,3 @@ git clone https://github.com/StoreOpsAI/StoreOpsAI.git
 
 # 2. 프로젝트 폴더 이동
 cd StoreOpsAI
-```
