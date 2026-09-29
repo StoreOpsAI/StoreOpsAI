@@ -1,0 +1,63 @@
+{
+  "data": {
+    "inserted_missing_days": 0,
+    "status_counts": {
+      "observed": 90960
+    },
+    "observed_zero_days": 54537,
+    "policy": "No zero imputation. Closed/stockout/missing excluded from demand targets and history.",
+    "source": "sales_train_evaluation.csv",
+    "store": "CA_1",
+    "products": 120,
+    "sample_seed": 42,
+    "country": "US",
+    "weather_used": false,
+    "limitation": "M5 has no daily closure/stockout reason. Observed zeros are not reclassified.",
+    "prices_used": false
+  },
+  "last_observed": "2016-05-22",
+  "train_target_through": "2016-04-24",
+  "validation_origin_from": "2016-04-24",
+  "validation_origin_through": "2016-05-20",
+  "protocol": "Fixed model rolling-origin evaluation. Both horizons predicted at each origin using only observations through that origin. No tuning on holdout; final serving models refit after evaluation.",
+  "features": [
+    "mean7",
+    "same_weekday_last_week",
+    "weekday",
+    "is_holiday",
+    "mean28",
+    "month",
+    "has_event"
+  ],
+  "horizons": {
+    "d1": {
+      "train_samples": 86760,
+      "validation_samples": 3240,
+      "xgboost": {
+        "mae": 1.0564825161187736,
+        "rmse": 2.0555722304577286,
+        "wape": 0.7774252446570127
+      },
+      "mean7": {
+        "mae": 1.0925485008818343,
+        "rmse": 2.0533404133537174,
+        "wape": 0.8039648291749133
+      }
+    },
+    "d2": {
+      "train_samples": 86640,
+      "validation_samples": 3240,
+      "xgboost": {
+        "mae": 1.0703981564978116,
+        "rmse": 2.0899740905313067,
+        "wape": 0.7798718297847783
+      },
+      "mean7": {
+        "mae": 1.1127425044091712,
+        "rmse": 2.1198812342836275,
+        "wape": 0.8107231199203316
+      }
+    }
+  },
+  "model_type": "Two direct XGBoost regressors; no future sales used for d2"
+}

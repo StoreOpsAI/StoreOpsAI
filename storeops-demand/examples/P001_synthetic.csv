@@ -1,0 +1,9 @@
+date,store_id,product_id,sales,status,data_label
+2026-03-08,S01,P001,12,observed,synthetic
+2026-03-09,S01,P001,13,observed,synthetic
+2026-03-10,S01,P001,14,observed,synthetic
+2026-03-11,S01,P001,15,observed,synthetic
+2026-03-12,S01,P001,12,observed,synthetic
+2026-03-13,S01,P001,14,observed,synthetic
+2026-03-14,S01,P001,15,observed,synthetic
+2026-03-15,S01,P001,17,observed,synthetic
