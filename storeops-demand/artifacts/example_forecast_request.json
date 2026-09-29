@@ -1,0 +1,194 @@
+{
+  "product_id": "FOODS_1_010",
+  "as_of": "2016-05-22",
+  "history": [
+    {
+      "date": "2016-04-18",
+      "sales": 0.0,
+      "status": "observed"
+    },
+    {
+      "date": "2016-04-19",
+      "sales": 0.0,
+      "status": "observed"
+    },
+    {
+      "date": "2016-04-20",
+      "sales": 0.0,
+      "status": "observed"
+    },
+    {
+      "date": "2016-04-21",
+      "sales": 0.0,
+      "status": "observed"
+    },
+    {
+      "date": "2016-04-22",
+      "sales": 0.0,
+      "status": "observed"
+    },
+    {
+      "date": "2016-04-23",
+      "sales": 2.0,
+      "status": "observed"
+    },
+    {
+      "date": "2016-04-24",
+      "sales": 0.0,
+      "status": "observed"
+    },
+    {
+      "date": "2016-04-25",
+      "sales": 0.0,
+      "status": "observed"
+    },
+    {
+      "date": "2016-04-26",
+      "sales": 0.0,
+      "status": "observed"
+    },
+    {
+      "date": "2016-04-27",
+      "sales": 0.0,
+      "status": "observed"
+    },
+    {
+      "date": "2016-04-28",
+      "sales": 0.0,
+      "status": "observed"
+    },
+    {
+      "date": "2016-04-29",
+      "sales": 0.0,
+      "status": "observed"
+    },
+    {
+      "date": "2016-04-30",
+      "sales": 0.0,
+      "status": "observed"
+    },
+    {
+      "date": "2016-05-01",
+      "sales": 0.0,
+      "status": "observed"
+    },
+    {
+      "date": "2016-05-02",
+      "sales": 0.0,
+      "status": "observed"
+    },
+    {
+      "date": "2016-05-03",
+      "sales": 0.0,
+      "status": "observed"
+    },
+    {
+      "date": "2016-05-04",
+      "sales": 0.0,
+      "status": "observed"
+    },
+    {
+      "date": "2016-05-05",
+      "sales": 0.0,
+      "status": "observed"
+    },
+    {
+      "date": "2016-05-06",
+      "sales": 0.0,
+      "status": "observed"
+    },
+    {
+      "date": "2016-05-07",
+      "sales": 1.0,
+      "status": "observed"
+    },
+    {
+      "date": "2016-05-08",
+      "sales": 0.0,
+      "status": "observed"
+    },
+    {
+      "date": "2016-05-09",
+      "sales": 1.0,
+      "status": "observed"
+    },
+    {
+      "date": "2016-05-10",
+      "sales": 0.0,
+      "status": "observed"
+    },
+    {
+      "date": "2016-05-11",
+      "sales": 0.0,
+      "status": "observed"
+    },
+    {
+      "date": "2016-05-12",
+      "sales": 0.0,
+      "status": "observed"
+    },
+    {
+      "date": "2016-05-13",
+      "sales": 0.0,
+      "status": "observed"
+    },
+    {
+      "date": "2016-05-14",
+      "sales": 0.0,
+      "status": "observed"
+    },
+    {
+      "date": "2016-05-15",
+      "sales": 0.0,
+      "status": "observed"
+    },
+    {
+      "date": "2016-05-16",
+      "sales": 2.0,
+      "status": "observed"
+    },
+    {
+      "date": "2016-05-17",
+      "sales": 0.0,
+      "status": "observed"
+    },
+    {
+      "date": "2016-05-18",
+      "sales": 0.0,
+      "status": "observed"
+    },
+    {
+      "date": "2016-05-19",
+      "sales": 0.0,
+      "status": "observed"
+    },
+    {
+      "date": "2016-05-20",
+      "sales": 2.0,
+      "status": "observed"
+    },
+    {
+      "date": "2016-05-21",
+      "sales": 0.0,
+      "status": "observed"
+    },
+    {
+      "date": "2016-05-22",
+      "sales": 0.0,
+      "status": "observed"
+    }
+  ],
+  "calendar": [
+    {
+      "date": "2016-05-23",
+      "is_holiday": 0,
+      "has_event": 0
+    },
+    {
+      "date": "2016-05-24",
+      "is_holiday": 0,
+      "has_event": 0
+    }
+  ],
+  "country": "US"
+}

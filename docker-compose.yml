@@ -1,0 +1,83 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: storeops-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: storeops
+      POSTGRES_USER: storeops
+      POSTGRES_PASSWORD: storeops_dev_password
+      TZ: Asia/Seoul
+      PGTZ: Asia/Seoul
+    ports:
+      - "5433:5432"
+    volumes:
+      - storeops_postgres_data:/var/lib/postgresql/data
+      - ./backend/migrations/001_initial_schema.sql:/docker-entrypoint-initdb.d/001_initial_schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U storeops -d storeops"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: ./backend
+    container_name: storeops-backend
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://storeops:storeops_dev_password@postgres:5432/storeops
+      FRONTEND_ORIGIN: http://localhost:5173
+      SESSION_COOKIE_SECURE: "false"
+      STOREOPS_DEMAND_URL: http://demand:8765
+      STOREOPS_DEMAND_TOKENS_JSON: ${STOREOPS_DEMAND_TOKENS_JSON:?매장별 수요 서비스 토큰 매핑을 설정하세요}
+      STOREOPS_AI_INGEST_TOKENS_JSON: ${STOREOPS_AI_INGEST_TOKENS_JSON:?매장별 탐지 토큰 매핑을 설정하세요}
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./storeops_ai/output:/app/output
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  demand:
+    build:
+      context: ./storeops-demand
+    container_name: storeops-demand
+    restart: unless-stopped
+    environment:
+      STOREOPS_DEMO: "1"
+    ports:
+      - "8765:8765"
+    volumes:
+      - ./storeops-demand/runtime:/app/runtime
+
+  storeops-ai:
+    build:
+      context: ./storeops_ai
+    container_name: storeops-ai-detector
+    restart: unless-stopped
+    environment:
+      ALERT_WEBHOOK_URL: http://backend:8000/api/internal/events
+      EVENT_INGEST_TOKEN: ${STOREOPS_AI_INGEST_TOKEN:?탐지 서비스 토큰을 설정하세요}
+      STOREOPS_BACKEND_URL: http://backend:8000
+    ports:
+      - "8100:8000"
+    volumes:
+      - ./storeops_ai/input:/app/input
+      - ./storeops_ai/output:/app/output
+    depends_on:
+      - backend
+
+  frontend:
+    build:
+      context: ./frontend
+    container_name: storeops-frontend
+    restart: unless-stopped
+    ports:
+      - "5173:80"
+    depends_on:
+      - backend
+
+volumes:
+  storeops_postgres_data:

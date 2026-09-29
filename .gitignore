@@ -1,0 +1,12 @@
+# Root-level generated files
+frontend/node_modules/
+frontend/dist/
+backend/.venv/
+**/__pycache__/
+*.pyc
+.DS_Store
+
+# 로컬 전용 비밀값 (커밋 금지)
+.env
+.env.*
+!.env.example
