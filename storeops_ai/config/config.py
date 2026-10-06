@@ -9,7 +9,7 @@ from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 # input 폴더에 새 영상이 들어오면 사람이 API를 호출하지 않아도 자동으로 분석한다.
-INPUT_DIR = Path(os.getenv("AUTO_ANALYSIS_INPUT_DIR", "input"))
+INPUT_DIR = Path(os.getenv("AUTO_ANALYSIS_INPUT_DIR", str(BASE_DIR / "input")))
 AUTO_ANALYSIS_POLL_INTERVAL_SEC = float(os.getenv("AUTO_ANALYSIS_POLL_INTERVAL_SEC", "5.0"))
 AUTO_ANALYSIS_DEFAULT_CAMERA_ID = os.getenv("AUTO_ANALYSIS_DEFAULT_CAMERA_ID", "CAM-01")
 
@@ -23,40 +23,36 @@ PERSON_CLASS_ID = 0
 # FR-EVT-03~04
 CLIP_MIN_SEC = float(os.getenv("CLIP_MIN_SEC", "2.0"))
 CLIP_MAX_SEC = float(os.getenv("CLIP_MAX_SEC", "4.0"))
-# 파손/향후 폭행 증거 보존용: bbox 사방으로 폭·높이의 50%를 확장한다.
+# 파손/싸움 증거 보존용: bbox 사방으로 폭·높이의 50%를 확장한다.
 EXPAND_X = float(os.getenv("EXPAND_X", "0.50"))
 EXPAND_Y = float(os.getenv("EXPAND_Y", "0.50"))
-EXPANDED_CROP_CATEGORIES = {"폭행", "파손"}
+EXPANDED_CROP_CATEGORIES = {"싸움", "파손"}
 
-# FR-EVT-05: 7개 클래스(명세의 '여섯' 표기와 달리 실제 나열은 7개)
-CATEGORIES = ["정상", "전도", "파손", "방화", "유기", "절도", "폭행"]
-# 클래스별 사건 기준. 수치는 초기 안전값이며, 검증 영상의 오탐/미탐 결과로 보정해야 한다.
-EVENT_THRESHOLD = float(os.getenv("EVENT_THRESHOLD", "0.75"))
+# FR-EVT-05: 요구사항에 정의된 5개 점수만 운영 API에 노출한다.
+CATEGORIES = ["정상", "쓰러짐", "싸움", "파손", "쓰레기 투기"]
+# 임시 기준값은 비정상 클래스 모두 0.60으로 두고 환경변수로 조정할 수 있다.
+EVENT_THRESHOLD = float(os.getenv("EVENT_THRESHOLD", "0.60"))
 
 def _category_threshold(env_name: str, default: str) -> float:
     """개별 설정이 없으면 기존 공통 EVENT_THRESHOLD 설정을 계속 존중한다."""
     return float(os.getenv(env_name, os.getenv("EVENT_THRESHOLD", default)))
 
 CATEGORY_THRESHOLDS = {
-    "전도": _category_threshold("FALL_EVENT_THRESHOLD", "0.80"),
-    "파손": _category_threshold("BROKEN_EVENT_THRESHOLD", "0.75"),
-    "방화": _category_threshold("FIRE_EVENT_THRESHOLD", "0.85"),
-    "유기": _category_threshold("ABANDON_EVENT_THRESHOLD", "0.75"),
-    "절도": _category_threshold("THEFT_EVENT_THRESHOLD", "0.80"),
-    # 현재 미학습이므로 사건 발급을 차단한다. 폭행 가중치 추가 시 별도 기준을 설정한다.
-    "폭행": float(os.getenv("FIGHT_EVENT_THRESHOLD", "1.01")),
+    "쓰러짐": _category_threshold("FALL_EVENT_THRESHOLD", "0.60"),
+    "싸움": _category_threshold("FIGHT_EVENT_THRESHOLD", "0.60"),
+    "파손": _category_threshold("BROKEN_EVENT_THRESHOLD", "0.60"),
+    "쓰레기 투기": _category_threshold("LITTERING_EVENT_THRESHOLD", "0.60"),
 }
-# 비정상 최고점이 정상보다 이 값만큼 높지 않으면 어느 쪽도 확신하지 못한 것으로 본다.
-NORMAL_ANOMALY_MARGIN = float(os.getenv("NORMAL_ANOMALY_MARGIN", "0.20"))
 
 # FR-EVT-05: 학습된 행동분류 모델 (torchvision S3D, training/train_i3d.py 로 학습)
 I3D_WEIGHT_PATH = os.getenv("I3D_WEIGHT_PATH", str(BASE_DIR / "training" / "runs" / "mc_stage2" / "best.pt"))
 I3D_DEVICE = os.getenv("I3D_DEVICE", "auto")  # auto | cpu | cuda
 
-# 학습 라벨(영문) -> 서비스 카테고리(한글). 학습 데이터에 없는 카테고리(현재 '폭행')는 점수 0.0으로 채운다.
+# 학습 라벨(영문) -> 서비스 카테고리(한글). 기존 체크포인트의 미요구 클래스는 점수 응답에서 제외한다.
 MODEL_LABEL_TO_CATEGORY = {
-    "normal": "정상", "fall": "전도", "broken": "파손",
-    "fire": "방화", "abandon": "유기", "theft": "절도", "fight": "폭행",
+    "normal": "정상", "fall": "쓰러짐", "broken": "파손",
+    "abandon": "쓰레기 투기", "fight": "싸움",
+    "fire": "방화", "theft": "절도",
 }
 
 # 화면 전체 입력만 운영한다. 기존 I3D_* 환경변수 이름은 하위 호환을 위해 유지한다.
@@ -85,12 +81,19 @@ if abs(EVENT_VIDEO_PRE_SEC + EVENT_VIDEO_POST_SEC - EVENT_VIDEO_SEC) > 1e-9:
 CAMERA_DISCONNECT_SEC = float(os.getenv("CAMERA_DISCONNECT_SEC", "60.0"))
 
 # 저장 경로 (Path 객체여야 pipelines/path1_behavior.py 의 `CLIP_DIR / "..."` 가 동작한다)
-CLIP_DIR = Path("output/clips")
-EVENT_DIR = Path("output/events")
-IMAGE_DIR = Path("output/representative_images")
+CLIP_DIR = BASE_DIR / "output" / "clips"
+EVENT_DIR = BASE_DIR / "output" / "events"
+IMAGE_DIR = BASE_DIR / "output" / "representative_images"
 
 # FR-EVT-15
 VLM_MAX_WORKERS = int(os.getenv("VLM_MAX_WORKERS", "2"))
+QWEN_VLM_BASE_URL = os.getenv("QWEN_VLM_BASE_URL", "http://127.0.0.1:8001/v1")
+QWEN_VLM_MODEL = os.getenv("QWEN_VLM_MODEL", "Qwen/Qwen3-VL-8B-Instruct-FP8")
+QWEN_VLM_API_KEY = os.getenv("QWEN_VLM_API_KEY", "")
+QWEN_VLM_TIMEOUT_SEC = float(os.getenv("QWEN_VLM_TIMEOUT_SEC", "60"))
+QWEN_VLM_MAX_TOKENS = int(os.getenv("QWEN_VLM_MAX_TOKENS", "512"))
+QWEN_VLM_IMAGE_MAX_PIXELS = int(os.getenv("QWEN_VLM_IMAGE_MAX_PIXELS", "147456"))
+QWEN_VLM_IMAGE_JPEG_QUALITY = int(os.getenv("QWEN_VLM_IMAGE_JPEG_QUALITY", "85"))
 OPENAI_VLM_MODEL = os.getenv("OPENAI_VLM_MODEL", "gpt-5")
 OPENAI_VLM_TIMEOUT_SEC = float(os.getenv("OPENAI_VLM_TIMEOUT_SEC", "30.0"))
 
@@ -98,6 +101,7 @@ OPENAI_VLM_TIMEOUT_SEC = float(os.getenv("OPENAI_VLM_TIMEOUT_SEC", "30.0"))
 # StoreOpsAI 백엔드의 /api/internal/events 로 설정하면 이 전송이 곧 DB 등록 트리거가 된다.
 # 영상 경로는 상대 경로 그대로 전달하고, backend가 공유 output 볼륨에서 직접 읽어 서빙한다.
 ALERT_WEBHOOK_URL = os.getenv("ALERT_WEBHOOK_URL", "")
+VLM_RESULT_WEBHOOK_URL = os.getenv("VLM_RESULT_WEBHOOK_URL", "")
 ALERT_WEBHOOK_TIMEOUT_SEC = float(os.getenv("ALERT_WEBHOOK_TIMEOUT_SEC", "10.0"))
 
 # Path 2 실시간 스트림 수신/감시 워커 설정

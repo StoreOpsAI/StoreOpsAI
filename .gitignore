@@ -2,10 +2,21 @@
 frontend/node_modules/
 frontend/dist/
 backend/.venv/
+**/.venv/
 **/__pycache__/
+**/.pytest_cache/
 *.pyc
 .DS_Store
+AGENTS
 
+# 로컬 실행 및 검증으로 생성되는 파일
+storeops-demand/*.egg-info/
+storeops-demand/runtime/*.sqlite3
+storeops-demand/reports/*.log
+storeops-demand/reports/*.xml
+storeops-demand/artifacts/validation_predictions.csv
+storeops_ai/input/*
+storeops_ai/output/*
 # 로컬 전용 비밀값 (커밋 금지)
 .env
 .env.*

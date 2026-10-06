@@ -48,6 +48,12 @@ def read_manifest(data_dir: Path):
     records = []
     with open(manifest, encoding="utf-8-sig") as f:
         for row in csv.DictReader(f):
+            data_source = row.get("data_source")
+            consent_confirmed = row.get("consent_confirmed", "").lower() == "true"
+            if data_source not in {"aihub_public", "team_consented"}:
+                raise ValueError(f"허용되지 않거나 출처가 누락된 학습 데이터: {row.get('clip_folder')}")
+            if data_source == "team_consented" and not consent_confirmed:
+                raise ValueError(f"팀원 연기 영상 동의 확인 정보가 없습니다: {row.get('clip_folder')}")
             clip_dir = data_dir / row["clip_folder"]
             if not clip_dir.is_dir():
                 print(f"[경고] 폴더 없음, 건너뜀: {row['clip_folder']}")
@@ -62,6 +68,8 @@ def read_manifest(data_dir: Path):
                 "frames": frames,
                 "label": row.get("label") or row.get("event_type"),
                 "source_video": row.get("source_video", row["clip_folder"]),
+                "data_source": data_source,
+                "consent_confirmed": consent_confirmed,
             })
     return records
 

@@ -17,6 +17,18 @@ export function createDraft(payload) {
   });
 }
 
+// 최근 판매 이력과 달력 정보로 M5 XGBoost 예측 발주 초안을 생성합니다.
+export function createForecastDraft(payload) {
+  return request("/api/demand/orders/forecast-draft", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Idempotency-Key": crypto.randomUUID(),
+    },
+    body: JSON.stringify(payload),
+  });
+}
+
 // 점주가 계산된 박스 수량을 승인합니다.
 export function approveDraft(draftId, qty) {
   return request(`/api/demand/orders/drafts/${draftId}/approve`, {

@@ -37,12 +37,10 @@ from models.i3d_classifier import I3DClassifier, I3DNotConfiguredError
 
 DISPLAY_NAMES = {
     "정상": "NORMAL",
-    "전도": "FALL",
+    "쓰러짐": "FALL",
     "파손": "BROKEN",
-    "방화": "FIRE",
-    "유기": "ABANDON",
-    "절도": "THEFT",
-    "폭행": "FIGHT",
+    "쓰레기 투기": "LITTERING",
+    "싸움": "FIGHT",
 }
 
 
@@ -97,7 +95,7 @@ def draw_score_panel(frame, scores, category, confidence, threshold, ready, meta
     y += 28
 
     if category:
-        event = category not in ("정상", "판정 보류") and confidence >= threshold
+        event = category not in ("정상", "판정 보류") and confidence > threshold
         text = f"{DISPLAY_NAMES.get(category, category)}  {confidence:.1%}"
         cv2.putText(
             frame, text, (20, y),
@@ -115,7 +113,7 @@ def draw_score_panel(frame, scores, category, confidence, threshold, ready, meta
         )
         y += 27
 
-        for c in ["정상", "전도", "파손", "방화", "유기", "절도", "폭행"]:
+        for c in ["정상", "쓰러짐", "싸움", "파손", "쓰레기 투기"]:
             s = float(scores.get(c, 0.0))
             label = f"{DISPLAY_NAMES[c]:8s} {s:6.1%}"
             cv2.putText(frame, label, (20, y),

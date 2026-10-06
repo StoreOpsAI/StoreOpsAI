@@ -5,7 +5,7 @@
 
 # StoreOps AI 프런트엔드
 
-StoreOps AI 점주용 웹 애플리케이션입니다. React 19와 Vite를 사용하며, 로그인한 점주가 매장 사건과 상세 정보, 처리 이력을 확인하고 상태를 변경할 수 있습니다.
+StoreOps AI 점주용 웹 애플리케이션입니다. React 19와 Vite를 사용하며, 로그인한 점주가 사건을 처리하고 발주 초안을 관리하며 매장 기록과 점검 규정을 질문할 수 있습니다.
 
 ## 요구 사항
 
@@ -28,9 +28,12 @@ npm run dev -- --host 0.0.0.0
 
 ## 주요 파일
 
-- `src/App.jsx`: 사건 목록, 상세 정보, 상태 변경 화면
+- `src/App.jsx`: 인증, 사건, 발주, 질문 화면
 - `src/api/client.js`: 공통 HTTP 요청과 오류 처리
+- `src/api/auth.js`: 회원가입, 로그인, 로그아웃, 현재 사용자 API
 - `src/api/events.js`: 사건 API 호출 함수
+- `src/api/demand.js`: 발주 API 호출 함수
+- `src/api/questions.js`: 점주 질문 및 질문 로그 API 호출
 - `src/main.jsx`: React 애플리케이션 진입점
 
 ## 검증
@@ -40,11 +43,9 @@ npm run lint
 npm run build
 ```
 
-## 앱 안내
+## 프록시와 질문 기능
 
-StoreOps AI 점주용 화면입니다. 로그인한 점주가 매장 사건과 상세 정보, 처리 이력을 확인하고 상태를 변경할 수 있습니다.
-
-개발 서버는 `/api` 요청을 `http://localhost:8000`으로, `/detector` 요청을 `http://localhost:8100`으로 프록시합니다. 주소를 바꾸려면 Vite 실행 전에 `VITE_API_PROXY_TARGET` 또는 `VITE_DETECTOR_PROXY_TARGET` 환경변수를 지정하세요.
+Vite 개발 서버는 `/api` 요청을 `http://localhost:8000`으로 프록시합니다. `/detector` 요청은 접두사 `/detector`를 제거한 뒤 `http://localhost:8100`의 CCTV 탐지 API로 전달합니다. 주소가 다르면 Vite 실행 전에 `VITE_API_PROXY_TARGET` 또는 `VITE_DETECTOR_PROXY_TARGET` 환경변수를 지정하세요.
 
 ```powershell
 $env:VITE_API_PROXY_TARGET = "http://localhost:8000"
@@ -52,15 +53,9 @@ $env:VITE_DETECTOR_PROXY_TARGET = "http://localhost:8100"
 npm run dev -- --host 0.0.0.0
 ```
 
-로그인 후 보호 API에는 `X-Session-ID` 헤더를 사용합니다. 새 매장에는 사건이 자동으로 생성되지 않으므로 CCTV 탐지 서비스에서 사건을 수신해야 목록에 데이터가 표시됩니다. 하위 서비스 설정은 [프로젝트 README](../README.md)를 참고하세요.
+보호 API에는 로그인 응답의 `session_id`가 `X-Session-ID` 헤더로 전달됩니다. 새 매장에는 사건이 자동으로 생성되지 않으므로 CCTV 탐지 서비스에서 사건을 수신해야 목록에 데이터가 표시됩니다.
 
-| 파일                | 설명                            |
-| ------------------- | ------------------------------- |
-| `src/App.jsx`       | 인증, 사건 및 발주 화면         |
-| `src/api/client.js` | 공통 요청, 세션 헤더, 오류 처리 |
-| `src/api/auth.js`   | 인증 API 호출                   |
-| `src/api/events.js` | 사건 및 미디어 API 호출         |
-| `vite.config.js`    | 개발 서버와 API 프록시 설정     |
+질문 화면은 `/api/ask`로 요청하고, `/api/ask/{question_session_id}/log`에서 실행 도구와 조회 로그를 가져옵니다. 이 기능을 사용하려면 백엔드뿐 아니라 `qna-agent`, `qna-llm`과 필요한 모델·규정 데이터도 준비되어야 합니다. 수요·질문 서비스와 전체 실행 방법은 [프로젝트 README](../README.md)를 참고하세요.
 
 ## 기여
 

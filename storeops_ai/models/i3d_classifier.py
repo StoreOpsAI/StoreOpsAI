@@ -1,7 +1,7 @@
 """FR-EVT-05: 행동 분류 (I3D 계열 - torchvision S3D).
 
 training/runs/*/best.pt (training/scripts/train_i3d.py 로 학습한 체크포인트)를 읽어서
-클립(프레임 리스트)을 분류하고, 서비스 표준 7개 카테고리 점수로 변환한다.
+클립(프레임 리스트)을 분류하고, 서비스 표준 5개 카테고리 점수로 변환한다.
 
 학습 때와 반드시 같아야 하는 전처리 (training/scripts/train_i3d.py::load_clip):
   1) 프레임 수를 체크포인트의 num_frames(24)로 균일 샘플링
@@ -9,8 +9,8 @@ training/runs/*/best.pt (training/scripts/train_i3d.py 로 학습한 체크포�
   3) BGR -> RGB, /255, Kinetics-400 mean/std 정규화
   4) (C, T, H, W) 텐서, 배치 차원 추가
 
-학습 라벨은 영문 6종(abandon/broken/fall/fire/normal/theft)이고 '폭행(fight)'은 학습하지 않았다.
-서비스 카테고리 7종과 맞추기 위해 폭행 점수는 0.0으로 채운다 (=이 모델로는 폭행이 발급되지 않는다).
+현재 체크포인트는 abandon/broken/fall/fire/normal/theft 6종으로 학습되었으며 싸움 클래스는 포함되지 않았습니다.
+운영 점수는 요구된 5개 카테고리만 반환하고, 미학습 싸움 점수는 0.0으로 채웁니다.
 """
 
 from __future__ import annotations
@@ -24,7 +24,6 @@ import numpy as np
 
 from config.config import (
     CATEGORIES, CATEGORY_THRESHOLDS, I3D_WEIGHT_PATH, I3D_DEVICE, MODEL_LABEL_TO_CATEGORY,
-    NORMAL_ANOMALY_MARGIN,
 )
 
 logger = logging.getLogger("storeops_ai")
@@ -148,7 +147,7 @@ class I3DClassifier:
     def is_ready(self) -> bool:
         return self.model is not None
 
-    # I3D에서 출력되는 7개 클래스의 점수가
+    # I3D에서 출력되는 5개 서비스 클래스의 점수가
     # 올바른 형식인지 확인하는 함수
     @classmethod
     def validate_scores(cls, scores: Dict[str, float]) -> Dict[str, float]:
@@ -157,17 +156,17 @@ class I3DClassifier:
         if not isinstance(scores, dict):
             raise ValueError("I3D scores는 dict여야 합니다.")
 
-        # 정상, 전도, 파손, 방화, 유기, 절도, 폭행 중
+        # 정상, 쓰러짐, 싸움, 파손, 쓰레기 투기 중
         # 빠진 클래스가 있는지 확인
         missing = [c for c in CATEGORIES if c not in scores]
 
         # 정의되지 않은 추가 클래스가 들어왔는지 확인
         extra = [k for k in scores if k not in CATEGORIES]
 
-        # 7개 클래스가 정확하게 존재해야 함
+        # 5개 클래스가 정확하게 존재해야 함
         if missing or extra:
             raise ValueError(
-                f"I3D 7개 클래스가 정확히 필요합니다. "
+            f"I3D 5개 클래스가 정확히 필요합니다. "
                 f"missing={missing}, extra={extra}"
             )
 
@@ -219,7 +218,7 @@ class I3DClassifier:
         self,
         clip_frames: List[np.ndarray]
     ) -> Tuple[str, float, Dict[str, float]]:
-        """클립을 분류해 (카테고리, confidence, 7개 카테고리 점수)를 돌려준다."""
+        """클립을 분류해 (카테고리, confidence, 5개 카테고리 점수)를 돌려준다."""
         import torch
 
         # 입력 영상 프레임이 없는 경우 오류 발생
@@ -238,39 +237,44 @@ class I3DClassifier:
             logits = self.model(x)
             probs = torch.softmax(logits.float(), dim=1)[0].cpu().numpy().astype(np.float64)
 
-        # 모델이 학습하지 않은 카테고리(폭행)는 0.0. 정상 포함 7개가 항상 채워진다.
+        # 모델에 없는 서비스 카테고리는 0.0으로 남기고, 요구 외 출력은 제외한다.
         scores = {c: 0.0 for c in CATEGORIES}
         for idx, p in enumerate(probs):
-            scores[self._index_to_category[idx]] = float(min(max(p, 0.0), 1.0))
+            category = self._index_to_category[idx]
+            if category in scores:
+                scores[category] = float(min(max(p, 0.0), 1.0))
 
         return self.decide(scores)
 
-    # 모델이 반환한 7개 점수를
+    # 모델이 반환한 5개 점수를
     # 프로젝트에서 사용할 표준 결과로 변환하는 함수
     def result_from_scores(
         self,
         scores: Dict[str, float]
     ):
 
-        # 입력된 7개 점수의 형식을 먼저 검증
+        # 입력된 5개 점수의 형식을 먼저 검증
         scores = self.validate_scores(scores)
 
-        # 7개 클래스 중 가장 높은 점수를 가진 클래스를 선택
+        # 5개 클래스 중 가장 높은 점수를 가진 클래스를 선택
         category = max(scores, key=scores.get)
 
         # 선택된 클래스의 점수를 confidence로 사용
         return category, scores[category], scores
 
     def decide(self, scores: Dict[str, float]) -> Tuple[str, float, Dict[str, float]]:
-        """원점수를 사건 처리용 정상/비정상/판정 보류로 바꾼다."""
+        """비정상 점수가 기준을 넘으면 정상 점수와 독립적으로 사건 후보로 고른다."""
         raw_category, raw_confidence, scores = self.result_from_scores(scores)
+        anomaly_category = max(
+            (category for category in CATEGORIES if category != "정상"),
+            key=scores.get,
+        )
+        anomaly_confidence = scores[anomaly_category]
+        if anomaly_confidence > CATEGORY_THRESHOLDS[anomaly_category]:
+            return anomaly_category, anomaly_confidence, scores
         if raw_category == "정상":
             return raw_category, raw_confidence, scores
-        if raw_confidence < CATEGORY_THRESHOLDS[raw_category]:
-            return "판정 보류", raw_confidence, scores
-        if raw_confidence - scores["정상"] < NORMAL_ANOMALY_MARGIN:
-            return "판정 보류", raw_confidence, scores
-        return raw_category, raw_confidence, scores
+        return "판정 보류", raw_confidence, scores
 
     # FR-EVT-06에서 사용하는 임계값 확인 함수
     def exceeds_threshold(
@@ -285,4 +289,4 @@ class I3DClassifier:
 
         # 해당 이벤트 종류의 설정된 임계값과
         # 현재 confidence를 비교한다.
-        return float(confidence) >= CATEGORY_THRESHOLDS[category]
+        return float(confidence) > CATEGORY_THRESHOLDS[category]

@@ -23,7 +23,7 @@ import re
 from collections import defaultdict
 from pathlib import Path
 
-KOREAN = {"abandon": "유기", "broken": "파손", "fall": "전도", "fight": "폭행",
+KOREAN = {"abandon": "쓰레기 투기", "broken": "파손", "fall": "쓰러짐", "fight": "싸움",
           "fire": "방화", "smoke": "연기", "theft": "절도", "normal": "정상"}
 
 

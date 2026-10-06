@@ -21,14 +21,14 @@ from services.realtime import event_hub
 from schemas.event_schema import EventCandidate
 from utils.clip_manager import save_frames, save_representative_images
 from utils.event_manager import EventManager
-from utils.notification import send_first_alert
+from utils.notification import send_first_alert, send_vlm_result
 
 logger = logging.getLogger("storeops_ai")
 
 
 # cv2.putText 는 한글을 그리지 못하므로 tracked 영상에는 영문 라벨을 쓴다.
-CATEGORY_EN = {"파손": "BROKEN", "전도": "FALL", "방화": "FIRE",
-               "유기": "ABANDON", "절도": "THEFT", "폭행": "FIGHT"}
+CATEGORY_EN = {"파손": "BROKEN", "쓰러짐": "FALL", "쓰레기 투기": "LITTERING",
+               "싸움": "FIGHT"}
 
 
 class Path1BehaviorPipeline:
@@ -124,15 +124,22 @@ class Path1BehaviorPipeline:
             event_hub.publish("event.updated", updated)
         self._pending_video_events = remaining
 
-    def _persist_vlm_result(self, event_id, future):
+    def _persist_vlm_result(self, event, future):
         try:
             result = future.result()
-            status = result.pop("status", "COMPLETED") if isinstance(result, dict) else "COMPLETED"
-            updated = self.events.update(event_id, vlm={"status": status, "result": result})
+            status = result.pop("status", "completed").lower() if isinstance(result, dict) else "completed"
+            if status == "vlm_not_configured":
+                error = "QWEN_VLM_BASE_URL이 설정되지 않았습니다."
+                updated = self.events.update(event.event_id, vlm={"status": "failed", "error": error})
+                send_vlm_result(event, "failed", error=error)
+            else:
+                updated = self.events.update(event.event_id, vlm={"status": "completed", "result": result})
+                send_vlm_result(event, "completed", result=result)
             event_hub.publish("event.updated", updated)
         except Exception as exc:
-            logger.exception("[VLM FAILED] event=%s", event_id)
-            updated = self.events.update(event_id, vlm={"status": "FAILED", "error": str(exc)})
+            logger.exception("[VLM FAILED] event=%s", event.event_id)
+            updated = self.events.update(event.event_id, vlm={"status": "failed", "error": str(exc)})
+            send_vlm_result(event, "failed", error=str(exc))
             event_hub.publish("event.updated", updated)
 
     def _make_event(self, category, confidence, scores, track_ids, clip_frames,
@@ -151,7 +158,8 @@ class Path1BehaviorPipeline:
 
         event = EventCandidate(
             event_id=event_id, camera_id=self.camera_id, event_type="행동",
-            category=category, confidence=float(confidence), scores=scores,
+            category=category, confidence=float(confidence),
+            threshold=CATEGORY_THRESHOLDS[category], scores=scores,
             track_ids=list(track_ids), clip_start_frame=start_frame, clip_end_frame=end_frame,
             clip_start_time_sec=start_time, clip_end_time_sec=end_time,
             clip_path=str(clip_path), event_video_path=str(video_path),
@@ -166,14 +174,18 @@ class Path1BehaviorPipeline:
         event_hub.publish("event.created", event.to_dict())
         # FR-EVT-15: 별도 작업. 실패/지연은 위 저장/알림에 영향 없음.
         try:
-            future = self.vlm.analyze_async(images, event.to_dict())
-            future.add_done_callback(lambda done, event_id=event_id: self._persist_vlm_result(event_id, done))
+            future = self.vlm.analyze_async(
+                images,
+                {"event_id": event.event_id, "camera_id": event.camera_id},
+            )
+            future.add_done_callback(lambda done, event=event: self._persist_vlm_result(event, done))
             if self.debug:
                 print(f"[VLM 비동기 시작] {event_id}")
         except Exception as exc:
             if self.debug:
                 print(f"[VLM 시작 실패] {exc}")
-            updated = self.events.update(event_id, vlm={"status": "FAILED", "error": str(exc)})
+            updated = self.events.update(event_id, vlm={"status": "failed", "error": str(exc)})
+            send_vlm_result(event, "failed", error=str(exc))
             event_hub.publish("event.updated", updated)
         return event
 
@@ -188,7 +200,7 @@ class Path1BehaviorPipeline:
         if category in ("정상", "판정 보류"):
             return None
         threshold = CATEGORY_THRESHOLDS[category]
-        if confidence < threshold:
+        if confidence <= threshold:
             return None
         event = self._make_event(category, confidence, scores, [track_id], clip_frames,
                                  event_frames, fps, start_frame, end_frame, start_time, end_time)
@@ -208,7 +220,7 @@ class Path1BehaviorPipeline:
         """FR-EVT-06: 임계값 + 중복(cooldown) 검사를 통과하면 사건 후보를 발급한다."""
         if category in ("정상", "판정 보류"):
             return None
-        if confidence < CATEGORY_THRESHOLDS.get(category, 1.0):
+        if confidence <= CATEGORY_THRESHOLDS.get(category, 1.0):
             return None
         key = (scope, category)
         last = self._last_event_time.get(key)
@@ -235,7 +247,7 @@ class Path1BehaviorPipeline:
 
         # 빨간 표시용 기록: 임계값을 넘은 분류 창의 프레임을 표시한다 (cooldown과 무관).
         if (category not in ("정상", "판정 보류")
-                and confidence >= CATEGORY_THRESHOLDS.get(category, 1.0)):
+                and confidence > CATEGORY_THRESHOLDS.get(category, 1.0)):
             start_f = small_buf[0][0] if small_buf else frame_no
             for f in range(start_f, frame_no + 1):
                 prev = self._alert_frames.get(f)

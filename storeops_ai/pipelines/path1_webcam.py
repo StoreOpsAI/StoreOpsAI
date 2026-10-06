@@ -45,7 +45,7 @@ from services.realtime import event_hub
 from schemas.event_schema import EventCandidate
 from utils.clip_manager import save_frames, save_representative_images
 from utils.event_manager import EventManager
-from utils.notification import send_first_alert
+from utils.notification import send_first_alert, send_vlm_result
 
 logger = logging.getLogger("storeops_ai")
 
@@ -169,16 +169,23 @@ class Path1Webcam:
                 if key[0] == scope:
                     self.confirmation_state.pop(key, None)
 
-    def _persist_vlm_result(self, event_id, future):
+    def _persist_vlm_result(self, event, future):
         """VLM 성공/실패는 사건과 알림을 막지 않고 사건 JSON에 나중에 반영한다."""
         try:
             result = future.result()
-            status = result.pop("status", "COMPLETED") if isinstance(result, dict) else "COMPLETED"
-            updated = self.events.update(event_id, vlm={"status": status, "result": result})
+            status = result.pop("status", "completed").lower() if isinstance(result, dict) else "completed"
+            if status == "vlm_not_configured":
+                error = "QWEN_VLM_BASE_URL이 설정되지 않았습니다."
+                updated = self.events.update(event.event_id, vlm={"status": "failed", "error": error})
+                send_vlm_result(event, "failed", error=error)
+            else:
+                updated = self.events.update(event.event_id, vlm={"status": "completed", "result": result})
+                send_vlm_result(event, "completed", result=result)
             event_hub.publish("event.updated", updated)
         except Exception as exc:
-            logger.exception("[VLM FAILED] event=%s", event_id)
-            updated = self.events.update(event_id, vlm={"status": "FAILED", "error": str(exc)})
+            logger.exception("[VLM FAILED] event=%s", event.event_id)
+            updated = self.events.update(event.event_id, vlm={"status": "failed", "error": str(exc)})
+            send_vlm_result(event, "failed", error=str(exc))
             event_hub.publish("event.updated", updated)
 
     def _frames_between(self, start_frame, end_frame):
@@ -225,7 +232,7 @@ class Path1Webcam:
         scope = tuple(sorted(set(track_ids))) if track_ids else ("scene",)
 
         # 임계값 미만이면 단발성/약한 분류로 보고 streak를 끊는다.
-        if confidence < threshold:
+        if confidence <= threshold:
             self._reset_confirmation(scope)
             return False, 0, self.confirmations_required
 
@@ -283,6 +290,7 @@ class Path1Webcam:
             event_type="행동",
             category=category,
             confidence=float(confidence),
+            threshold=CATEGORY_THRESHOLDS[category],
             scores=scores,
             track_ids=list(track_ids),
             clip_start_frame=start_frame,
@@ -307,9 +315,12 @@ class Path1Webcam:
         self.events.save(event)
         event_hub.publish("event.created", event.to_dict())
         try:
-            future = self.vlm.analyze_async(images, event.to_dict())
+            future = self.vlm.analyze_async(
+                images,
+                {"event_id": event.event_id, "camera_id": event.camera_id},
+            )
             future.add_done_callback(
-                lambda done, event_id=event_id: self._persist_vlm_result(event_id, done)
+                lambda done, event=event: self._persist_vlm_result(event, done)
             )
         except Exception as exc:
             logger.exception("[VLM START FAILED] event=%s", event_id)

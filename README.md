@@ -1,71 +1,202 @@
+<p align="center">
+  <img src="https://img.shields.io/badge/React-19-149ECA?logo=react&logoColor=white" alt="React 19">
+  <img src="https://img.shields.io/badge/FastAPI-Backend-009688?logo=fastapi&logoColor=white" alt="FastAPI">
+  <img src="https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white" alt="Docker Compose">
+</p>
+
 # StoreOpsAI
 
-점주가 매장에서 감지된 사건을 확인하고 상태를 처리하는 StoreOps AI 웹 애플리케이션입니다. React 프런트엔드와 FastAPI 백엔드를 분리해 구성했으며, Vite 개발 서버가 `/api` 요청을 백엔드로 전달합니다.
+점주가 CCTV 탐지 사건을 확인하고 처리하며, 매장 수요 예측을 바탕으로 발주 초안을 관리하고 운영 기록과 점검 규정을 질문할 수 있는 프로젝트입니다. React 프런트엔드, FastAPI 백엔드, CCTV 탐지 서비스, 수요·발주 서비스와 PostgreSQL로 구성되며, Q&A·LLM 서버는 선택적으로 별도 실행합니다.
 
 ## 주요 기능
 
-- 점주 회원가입, 로그인, 로그아웃과 세션 ID 헤더 인증
-- 로그인한 점주의 매장으로 범위가 제한된 사건 목록·상세 조회
-- 사건 상태 변경(확인·오탐·처리 완료)과 상태 변경 이력 조회
-- `DATABASE_URL` 설정 시 PostgreSQL, 미설정 시 메모리 저장소로 자동 전환
-- FastAPI 기반 헬스 체크 및 에코 API 제공
-- `storeops-demand` 수요 예측·발주 초안 서비스와 세션 인증 기반 연동
-- Docker Compose와 Vite 프록시를 통한 프런트엔드·백엔드 연동
+- 점주 회원가입·로그인 및 `X-Session-ID` 세션 인증
+- 점주 매장으로 범위가 제한된 사건 조회, 상세·미디어 확인, 상태 변경 및 이력 조회
+- CCTV 행동 분석과 카메라 연결 끊김 사건 수신
+- 수요 예측 결과 기반 발주 초안 생성, 조회와 승인
+- 로그인한 점주의 사건·발주 기록과 매장 점검 규정 질문 및 근거 확인
+- PostgreSQL 영속 저장 및 로컬 개발용 메모리 저장소
 
-## 프로젝트 구조
+## 저장소 구조
+
+아래는 현재 저장소의 주요 파일과 서비스별 디렉터리입니다. 가상환경, 캐시, 모델 가중치와 실행 중 생성되는 데이터는 제외했습니다.
 
 ```text
 StoreOpsAI/
-├─ AGENTS.md                    # 코드 작성, 테스트, 적용 지침
-├─ README.md                    # 프로젝트 문서
-├─ docker-compose.yml           # 프런트엔드, 백엔드, PostgreSQL, 수요 서비스 구성
-├─ docs/                        # 요구사항, DB 설계, 개발 착수 가이드
-├─ backend/
-│  ├─ Dockerfile               # 백엔드 컨테이너 이미지 정의
-│  ├─ requirements.txt         # Python 의존성
-│  ├─ migrations/              # PostgreSQL 초기 스키마
-│  ├─ tests/                   # 백엔드 단위 테스트
-│  └─ app/
-│     ├─ main.py               # FastAPI 앱과 저장소 선택, 및 모의 사건 시드
-│     ├─ database.py            # PostgreSQL 연결 생성
-│     ├─ schemas/               # API 입력·출력 Pydantic 모델(auth, event)
-│     ├─ repositories/          # 메모리·PostgreSQL 저장소(auth, event)
-│     ├─ services/              # 인증·사건 업무 규칙
-│     └─ routers/               # /api/auth, /api/events, /api/demand 라우터
-├─ frontend/
-│  ├─ Dockerfile                # 프런트엔드 production preview 이미지 정의
-│  ├─ package.json              # npm 스크립트와 JavaScript 의존성
-│  ├─ vite.config.js            # 개발 서버와 API 프록시 설정
-│  ├─ index.html
-│  └─ src/
-│     ├─ App.jsx                # 인증 화면과 사건 관리 화면
-│     ├─ App.css                # 화면 스타일
-│     ├─ index.css              # 전역 스타일
-│     ├─ main.jsx               # React 진입점
-│     └─ api/                   # client.js, auth.js, events.js
-└─ storeops_ai/
-  ├─ Dockerfile                # CCTV 탐지 서비스 이미지 정의
-  ├─ main.py                   # 행동분류·카메라 끊김 FastAPI 앱
-  ├─ api/                      # Path 1·2 탐지 API
-  └─ utils/notification.py     # 백엔드 사건 수신 웹훅 호출
+├── AGENTS.md                         # 작업 지침
+├── README.md                         # 프로젝트 및 개발환경 안내
+├── docker-compose.yml                # PostgreSQL 포함 8개 컨테이너
+├── llama.cpp/llama.cpp/              # Windows CPU·Vulkan·CUDA 실행 파일
+├── backend/                          # FastAPI 업무 API
+│   ├── app/
+│   │   ├── routers/                  # auth, demand, events, internal_events, questions
+│   │   ├── repositories/             # 인증·사건 메모리/PostgreSQL 저장소
+│   │   ├── schemas/                  # API 모델
+│   │   └── services/                 # 인증·사건 업무 로직
+│   ├── migrations/                   # PostgreSQL 스키마 변경
+│   ├── sql/                          # SQL 스크립트
+│   └── tests/                        # 백엔드 테스트
+├── frontend/                         # React 19 + Vite 점주 화면
+│   └── src/
+│       ├── api/                      # auth, demand, events, questions API
+│       └── assets/                   # 화면 리소스
+├── storeops-demand/                  # 수요 예측·발주 초안
+│   ├── storeops/                     # API, 데이터, 예측, 주문, 학습
+│   ├── artifacts/                    # 모델·평가 결과
+│   ├── examples/                     # 예제 데이터
+│   ├── reports/                      # 검증 보고서
+│   ├── runtime/                      # SQLite 실행 데이터
+│   └── tests/
+├── storeops_ai/                      # CCTV 분석·카메라 감시
+│   ├── api/                          # 영상 분석·카메라 연결 API
+│   ├── config/                       # 탐지·모델 설정
+│   ├── models/                       # YOLO, S3D, VLM
+│   ├── pipelines/                    # 행동 분석·웹캠·연결 감시
+│   ├── input/                        # 입력·실패·처리 영상
+│   ├── output/                       # 사건 클립·이미지·JSON
+│   ├── tools/                        # 모델 확인·Qwen 서버 실행
+│   └── training/                     # manifests, runs, scripts
+└── storeops_qna/                     # 매뉴얼 RAG 및 운영 기록 질문 Agent
+    ├── Dockerfile                    # Compose용 질문 Agent 이미지
+    ├── storeops_qna/                 # Agent, 도구, API, 검색·DB
+    ├── data/                         # 매뉴얼 검색 데이터
+    ├── scripts/                      # Qwen 실행·통합 점검 스크립트
+    ├── tests/
+    ├── config.yaml
+    └── SETUP_WINDOWS.md              # Windows 설치 안내
 ```
 
-## 요구 사항
+세부 설정과 사용법은 [백엔드 README](backend/README.md), [프런트엔드 README](frontend/README.md), [수요 서비스 README](storeops-demand/README.md), [CCTV 탐지 README](storeops_ai/README.md), [Q&A Windows 설치 안내](storeops_qna/SETUP_WINDOWS.md)를 참고하세요.
 
-- Windows PowerShell
-- Node.js와 npm
-- Python 3.10 이상 권장
+## 구성 및 주소
 
-## 설치
+| 서비스           | Compose 서비스 | 로컬 주소                                                | 용도                          |
+| ---------------- | -------------- | -------------------------------------------------------- | ----------------------------- |
+| 점주 프런트엔드  | `frontend`     | [http://localhost:5173](http://localhost:5173)           | 사건·발주 화면                |
+| 업무 백엔드      | `backend`      | [http://localhost:8000](http://localhost:8000)           | 인증, 사건 API, 서비스 프록시 |
+| 백엔드 API 문서  | `backend`      | [http://localhost:8000/docs](http://localhost:8000/docs) | OpenAPI/Swagger               |
+| 수요·발주 서비스 | `demand`       | [http://localhost:8765](http://localhost:8765)           | 예측·발주 API 및 데모         |
+| CCTV 탐지 서비스 | `storeops-ai`  | [http://localhost:8100](http://localhost:8100)           | 영상 분석 API                 |
+| PostgreSQL       | `postgres`     | `localhost:5433`                                         | 업무 데이터 영속 저장         |
+| Qwen VLM 서버    | `qwen-vllm`    | `http://localhost:8001`                                  | CCTV 대표 이미지 설명         |
+| 질문 Agent       | `qna-agent`    | `http://localhost:8002`                                  | 질문 처리 및 규정 검색        |
+| 질문 LLM         | `qna-llm`      | `http://localhost:8003`                                  | Qwen3.6-35B-A3B 로컬 추론     |
 
-### 프런트엔드
+프런트엔드 개발 서버는 `/api`를 백엔드로, `/detector`를 CCTV 탐지 서비스로 프록시합니다. Qwen VLM·질문 LLM·질문 Agent도 Compose 서비스이며, 질문용 GGUF 파일과 NVIDIA GPU가 필요합니다. 브라우저는 백엔드만 호출하고 수요·질문 서비스 인증 토큰은 백엔드가 보관합니다.
+
+## 개발환경 가이드
+
+Windows 10/11 x64와 PowerShell 기준입니다. AI 기능마다 런타임이 다르므로 Qwen용 WSL 가상환경을 기본 Python 환경과 분리하세요.
+
+| 개발 도구       | 버전                               | 사용처                                    |
+| --------------- | ---------------------------------- | ----------------------------------------- |
+| Git             | 최신 안정 버전                     | 저장소 내려받기                           |
+| Python          | 3.12.x                             | 백엔드, 수요 서비스, CCTV 분석, Q&A Agent |
+| Node.js 및 npm  | Node.js 22.x LTS 및 포함된 npm     | React 프런트엔드                          |
+| Docker Desktop  | 최신 안정 버전, Compose v2 포함    | 전체 서비스 실행                          |
+| WSL2 + Ubuntu   | Ubuntu 26.04.1 LTS                 | Qwen 비전 모델 서버 전용                  |
+| NVIDIA 드라이버 | CUDA 13.0을 지원하는 최신 드라이버 | WSL2 Qwen 비전 모델 GPU 실행              |
+
+설치 후 PowerShell에서 도구를 확인합니다. Docker와 NVIDIA/WSL 명령은 해당 AI 경로를 사용할 때 확인하면 됩니다.
 
 ```powershell
-cd frontend
-npm install
+git --version
+py -3.12 --version
+node --version
+npm --version
+docker compose version
+wsl --status
+nvidia-smi
 ```
 
-### 백엔드
+### 처음 실행하기
+
+1. 화면과 API만 개발하려면 [프런트엔드와 백엔드 로컬 실행](#프런트엔드와-백엔드만-로컬-실행) 절차를 따릅니다. 두 터미널을 사용하며, 백엔드는 PostgreSQL 없이 메모리 저장소로 실행됩니다.
+2. PostgreSQL·백엔드·프런트엔드·수요·CCTV 탐지·Qwen VLM·질문 LLM·질문 Agent를 실행하려면 [전체 Docker 실행](#전체-서비스-실행)을 선택합니다. 질문 LLM용 GGUF 파일과 Qwen VLM용 NVIDIA GPU 환경이 준비되어야 합니다.
+3. 사용할 AI 기능을 아래 표에서 골라 필요한 모델과 추가 환경을 준비합니다.
+
+백엔드는 `load_dotenv()`로 루트 `.env`를 읽을 수 있습니다. 다만 Compose용 연결 주소(`postgres`, `demand`, `qna-agent`)는 Docker 네트워크 안에서만 유효합니다. 호스트에서 백엔드를 직접 실행할 때는 필요한 주소를 `localhost`로 덮어쓰고, 메모리 저장소를 원하면 `DATABASE_URL`을 빈 값으로 설정하세요. 실제 토큰은 저장소에 커밋하지 마세요.
+
+### AI 기능별 환경
+
+| 기능                       | 버전 및 하드웨어                                                                                                  | 모델 준비 및 실행                                                                                                                                                              |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| CCTV 행동 탐지             | Python 3.12 권장, PyTorch 2.0 이상, torchvision 0.15 이상. CPU 가능, NVIDIA GPU는 선택                            | YOLO 및 S3D 가중치가 저장소에 포함됩니다. 아래 CCTV 환경을 준비하고 `python -m tools.verify_i3d`로 확인합니다.                                                                 |
+| 수요 예측                  | Python 3.12, pandas 3.0.6, xgboost-cpu 3.4.1, scikit-learn 1.9.1. GPU 불필요                                      | 학습 모델이 포함되어 있습니다. 단독 실행은 [수요 서비스 README](storeops-demand/README.md), 전체 연동은 Docker Compose를 사용합니다.                                           |
+| 점주 질문 Agent            | Python 3.12, 저장소 포함 llama.cpp Windows 빌드 `b11312`(CPU/Vulkan/CUDA 12.4)                                    | Qwen3.6-35B-A3B GGUF 모델을 별도 다운로드합니다. 모델 파일용 디스크 25GB 이상, 메모리 합계 약 23GB 이상 권장. 상세 절차: [Windows 설치 가이드](storeops_qna/SETUP_WINDOWS.md). |
+| CCTV 이미지 설명(Qwen VLM) | WSL2 Ubuntu 26.04.1, Python 3.14, PyTorch 2.13.0+cu130, CUDA 13.0, FlashInfer 0.6.18.post1, vLLM. NVIDIA GPU 필요 | Qwen3-VL-8B-Instruct-FP8 모델을 내려받습니다. RTX A4000 16GB에서 검증된 구성입니다. 전체 설치 절차는 [CCTV 탐지 README](storeops_ai/README.md)의 WSL2/vLLM 항목을 따릅니다.    |
+
+Compose의 Qwen VLM은 `vllm/vllm-openai` 컨테이너로 실행됩니다. 직접 WSL에서 실행하는 경우에는 CCTV 탐지 README의 검증된 Python 3.14 환경을 따르고, 다른 서비스의 Python 3.12 가상환경에 vLLM을 설치하지 마세요. Q&A용 GGUF와 매뉴얼 임베딩 모델은 별도로 준비해야 하며, Compose의 Qwen VLM 가중치는 첫 기동 시 Docker 볼륨에 내려받습니다.
+
+먼저 CCTV 행동 모델만 로컬에서 확인하려면:
+
+```powershell
+cd storeops_ai
+py -3.12 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+python -m tools.verify_i3d
+```
+
+서비스를 Compose와 분리해 로컬로 직접 실행할 때는 VLM 없이도 CCTV 행동 탐지와 수요 예측을 사용할 수 있습니다. 다만 현재 Compose의 `storeops-ai` 서비스는 `qwen-vllm`의 healthy 상태를 기다리므로 전체 Compose 실행에는 Qwen VLM용 GPU 환경이 필요합니다. Qwen 기반 질문 Agent와 이미지 설명은 각각 해당 가이드의 모델 준비를 마친 뒤 사용하세요.
+
+## Docker 구성 확인
+
+Compose에는 프런트엔드, 백엔드, 수요 서비스, CCTV 탐지기, PostgreSQL, Qwen VLM, 질문 LLM, 질문 Agent가 정의되어 있습니다. 실행 상태와 헬스체크는 환경·모델 다운로드·GPU 상태에 따라 달라지므로 특정 실행 결과를 고정해 문서화하지 않습니다. 실행 후 아래 명령으로 현재 환경을 확인하세요.
+
+```powershell
+docker compose ps
+Invoke-RestMethod http://localhost:8000/api/health
+Invoke-RestMethod http://localhost:8765/health
+Invoke-RestMethod http://localhost:8100/
+Invoke-RestMethod http://localhost:8001/health
+Invoke-RestMethod http://localhost:8003/health
+Invoke-RestMethod http://localhost:8002/openapi.json
+```
+
+## 실행 방법
+
+### 전체 서비스 실행
+
+Docker Desktop과 Docker Compose가 필요합니다. 프로젝트 루트의 `.env`에 Compose 필수 토큰을 설정하세요. 실제 토큰을 저장소에 추가하거나 브라우저에 노출하지 마세요.
+
+```dotenv
+STOREOPS_DEMAND_TOKENS_JSON={"S01":"demo-owner-s01"}
+STOREOPS_AI_INGEST_TOKENS_JSON={"<탐지-토큰>":"S01"}
+STOREOPS_AI_INGEST_TOKEN=<탐지-토큰>
+STOREOPS_QNA_TOKEN=<질문-서비스-공유-토큰>
+QNA_LLM_MODEL_PATH=C:/models/qwen3.6-35b-a3b/Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf
+```
+
+수요 컨테이너는 현재 `STOREOPS_DEMO=1`로 실행되므로 데모 토큰은 `demo-owner-s01`로 고정되어 있습니다. 백엔드의 수요 토큰 맵은 매장 ID를 이 토큰에 연결합니다. 탐지 토큰 맵은 탐지 토큰을 매장 ID에 연결하며, `STOREOPS_AI_INGEST_TOKEN`은 탐지 컨테이너가 웹훅에 사용하는 토큰으로 맵의 토큰 키와 같아야 합니다. `STOREOPS_QNA_TOKEN`은 백엔드와 질문 Agent가 공유하는 필수 토큰입니다. `QNA_LLM_MODEL_PATH`가 가리키는 GGUF 파일은 Docker 실행 전에 실제 경로에 있어야 합니다. 새 데이터베이스에서 최초 생성되는 매장 ID는 보통 `S01`이지만, 기존 DB를 사용할 때에는 실제 가입 계정의 매장 ID에 맞추세요. 이 데모 토큰 설정을 운영망에 노출하지 마세요.
+
+Compose의 Qwen VLM에는 Docker Desktop의 WSL2 NVIDIA GPU 지원이 필요하며, 첫 실행에서 모델을 Docker 볼륨에 내려받습니다. `qna-llm`은 질문용 35B GGUF 파일을 CPU로 실행합니다. `STOREOPS_QNA_TOKEN`이나 GGUF 파일 경로가 유효하지 않으면 Compose 기동이 실패할 수 있습니다. `storeops_qna/Dockerfile`은 저장소에 포함되어 있으므로 모델 파일과 환경변수 등 런타임 전제조건을 준비한 뒤 빌드·기동하세요.
+
+```powershell
+docker compose up -d --build
+docker compose ps
+```
+
+컨테이너 로그는 서비스별로 확인할 수 있습니다.
+
+```powershell
+docker compose logs -f backend
+docker compose logs -f storeops-ai
+docker compose logs -f qwen-vllm qna-llm qna-agent
+```
+
+Compose 네트워크 안에서 탐지 서비스는 `qwen-vllm`, 백엔드는 `qna-agent`로 연결됩니다. 모델 서버와 Agent API도 각각 `8001`, `8003`, `8002` 포트를 로컬 점검용으로 제공합니다. 질문 SQLite DB는 호스트의 `storeops_qna/storeops.db` 파일을 컨테이너에 바인드 마운트하며, Compose 설정이 자동 파일 생성을 비활성화하므로 기동 전에 파일이 있어야 합니다. Qwen·임베딩 모델 캐시는 Docker named volume에 저장되고, 질문 LLM의 GGUF 파일은 `QNA_LLM_MODEL_PATH`의 호스트 경로에서 읽습니다.
+
+일반 종료는 `docker compose down`입니다. DB 볼륨까지 삭제하는 `docker compose down -v`는 저장된 개발 데이터도 지우므로 주의하세요.
+
+Compose의 PostgreSQL 사용자·DB·비밀번호는 개발용 값으로 설정되어 있습니다. 운영 환경에서는 반드시 별도 비밀값으로 교체하고 네트워크 노출을 제한하세요.
+
+### 프런트엔드와 백엔드만 로컬 실행
+
+이 모드는 PostgreSQL과 탐지·수요 서비스를 요구하지 않습니다. 백엔드는 `DATABASE_URL`이 없으면 메모리 저장소를 사용하므로 프로세스를 재시작하면 계정, 세션, 사건 상태가 초기화됩니다. 두 터미널에서 각각 실행합니다.
+
+백엔드 터미널:
 
 ```powershell
 cd backend
@@ -73,320 +204,66 @@ python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
 pip install -r requirements.txt
+$env:DATABASE_URL = ""
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-## 실행
-
-백엔드와 프런트엔드를 각각의 터미널에서 실행합니다.
-
-### Docker로 백엔드와 PostgreSQL 실행
-
-Docker Desktop을 실행한 뒤 프로젝트 루트에서 다음 명령을 실행합니다. 내부의 `storeops-demand`도 함께 빌드해 수요 서비스와 발주 화면을 연결합니다.
+프런트엔드 터미널:
 
 ```powershell
-docker compose up -d --build
-docker compose ps
+cd frontend
+npm install
+npm run dev -- --host 0.0.0.0
 ```
 
-프런트엔드는 `http://localhost:5173`, 백엔드는 `http://localhost:8000`, 수요 서비스는 `http://localhost:8765`, PostgreSQL은 호스트의 `5433` 포트로 열립니다. 프런트엔드는 Docker 내부에서 `/api` 요청을 `backend` 컨테이너로 전달하고, 백엔드는 `/api/demand/*` 프록시를 사용하므로 수요 서비스 토큰을 브라우저에 노출하지 않습니다.
+브라우저에서 [http://localhost:5173](http://localhost:5173)을 열고 회원가입 후 로그인합니다. 신규 매장은 시드 사건 없이 시작합니다. 사건 목록을 확인하려면 탐지 서비스에서 사건을 생성해 백엔드로 전송해야 합니다.
 
-```text
-Host: localhost
-Port: 5433
-Database: storeops
-Username: storeops
-Password: storeops_dev_password
-```
+## 사건 수신 흐름
 
-초기 테이블은 `backend/migrations/001_initial_schema.sql`을 기반으로 PostgreSQL 최초 생성 시 자동으로 만들어집니다. 컨테이너를 중지하려면 다음 명령을 사용합니다.
-
-```powershell
-docker compose down
-```
-
-회원가입 시 서버가 새 매장 ID와 매장 기준정보를 생성합니다. 브라우저가 매장 ID를 지정하지 않으며 `STOREOPS_SINGLE_STORE_ID`와 `STOREOPS_SINGLE_STORE_NAME`은 사용하지 않습니다. Compose 실행 전 `STOREOPS_DEMAND_TOKENS_JSON`에 실제 매장별 수요 서비스 토큰을, `STOREOPS_AI_INGEST_TOKENS_JSON`에 탐지 토큰과 매장 ID의 JSON 매핑을 설정하세요.
-
-### CCTV 탐지 서비스 연결
-
-`storeops_ai`는 `storeops-ai` 컨테이너로 실행되며, 탐지 사건을 내부 웹훅으로 백엔드에 전달합니다. 백엔드는 인증된 탐지 토큰의 서버 설정 매핑으로 매장을 결정하고, 사건 ID를 DB에서 발급해 PostgreSQL에 저장합니다.
+CCTV 탐지 서비스가 분석 결과를 내부 사건 API에 보내면 백엔드는 토큰-매장 매핑을 확인하고 사건 ID와 매장을 결정해 PostgreSQL에 저장합니다. 탐지 서비스와 백엔드는 같은 출력 폴더를 공유합니다.
 
 ```text
 storeops_ai -> POST /api/internal/events -> backend -> PostgreSQL -> frontend
 ```
 
-Compose 전체를 실행하면 탐지 서비스 API는 `http://localhost:8100`, 내부 웹훅은 Docker 네트워크의 `http://backend:8000/api/internal/events`를 사용합니다. `EVENT_INGEST_TOKEN`은 탐지 컨테이너의 비밀값이며, 백엔드의 `STOREOPS_AI_INGEST_TOKENS_JSON` 키와 매칭되어야 합니다. 두 값 모두 브라우저에 노출하지 마세요.
-
-실제 영상으로 확인하려면 영상 파일을 `storeops_ai/input/sample.mp4`로 복사한 뒤 다음 요청을 보냅니다.
-
-```powershell
-Copy-Item "C:\영상\sample.mp4" ".\storeops_ai\input\sample.mp4"
-$body = @{ video_path = "/app/input/sample.mp4"; camera_id = "CAM-01" } | ConvertTo-Json
-Invoke-RestMethod http://localhost:8100/path1/analyze -Method Post -ContentType "application/json" -Body $body
-```
-
-분석 결과에서 사건이 발급되면 영상은 `storeops_ai/output`에 저장되고, 웹훅으로 백엔드에 등록됩니다. 이후 [http://localhost:5173](http://localhost:5173)에서 로그인해 사건을 선택하면 상세 패널에서 영상을 재생할 수 있습니다. Docker 환경에서는 영상이 브라우저 호환 H.264 MP4로 변환됩니다.
-
-DB 데이터까지 삭제하려면 다음 명령을 사용합니다. 이 명령은 개발 데이터도 삭제하므로 주의해야 합니다.
-
-```powershell
-docker compose down -v
-```
-
-### 백엔드 실행
-
-```powershell
-cd backend
-.\.venv\Scripts\Activate.ps1
-$env:STOREOPS_DEMAND_URL = "http://localhost:8765"
-$env:STOREOPS_DEMAND_TOKENS_JSON = '{"S01":"실제-토큰"}'
-$env:STOREOPS_AI_INGEST_TOKENS_JSON = '{"실제-탐지-토큰":"S01"}'
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
-```
-
-백엔드 주소: http://localhost:8000
-
-### 프런트엔드 실행
-
-```powershell
-cd frontend
-npm run dev -- --host 0.0.0.0
-```
-
-프런트엔드 주소: http://localhost:5173
-
-## 빠른 화면 시연
-
-Docker를 사용하지 않고도 백엔드는 기본적으로 메모리 저장소로 실행되므로, 다음 순서로 화면을 바로 확인할 수 있습니다. 두 터미널을 사용합니다.
-
-터미널 1에서 백엔드를 실행합니다.
-
-```powershell
-cd backend
-.\.venv\Scripts\Activate.ps1
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
-```
-
-터미널 2에서 프런트엔드를 실행합니다.
-
-```powershell
-cd frontend
-npm install
-npm run dev -- --host 0.0.0.0
-```
-
-브라우저에서 [http://localhost:5173](http://localhost:5173)을 열고 다음 흐름을 따라가면 됩니다.
-
-1. `회원가입`으로 전환한 뒤 매장 이름, 점주 이름, 이메일, 비밀번호를 입력합니다.
-2. 로그인하면 가입한 매장에 접근할 수 있습니다. 신규 가입 매장은 사건이 없는 상태로 시작할 수 있습니다.
-3. 사건 상세·상태 변경 화면을 시연하려면 `S01` 매장으로 인증된 계정이 필요합니다. 기본 시드 사건 `E014`(카메라 끊김), `E015`(낙상 의심)는 `S01`에 속합니다.
-4. `E015`를 선택해 모델 점수와 VLM 설명 상태를 확인한 뒤 `확인 처리`, `처리 완료`를 차례로 누릅니다.
-5. `E014`에서는 `오탐 처리`를 눌러 다른 상태 전이도 확인할 수 있습니다.
-
-화면 상단에 `API 연결됨`이 표시되면 프런트엔드에서 백엔드까지 연결된 상태입니다. 직접 확인하려면 [http://localhost:8000/api/health](http://localhost:8000/api/health)를 열어 다음 응답을 확인합니다.
-
-```json
-{
-  "service": "storeopsai-api",
-  "status": "ok"
-}
-```
-
-메모리 저장소를 사용하는 경우 백엔드를 다시 시작하면 회원가입 계정과 사건 상태 변경 내용이 초기화됩니다. PostgreSQL과 수요·발주 화면까지 함께 시연하려면 위의 Docker Compose 실행 방법을 사용합니다. 단일 매장 데모 설정에서는 회원가입 시 입력한 매장 이름 대신 `S01 데모 매장`이 사용되며 사건·발주 탭이 모두 같은 `S01` 범위를 공유합니다.
-
-## API
-
-### 헬스 체크
-
-```http
-GET /api/health
-```
-
-예상 응답:
-
-```json
-{
-  "service": "storeopsai-api",
-  "status": "ok"
-}
-```
-
-### 메시지 에코
-
-```http
-POST /api/echo
-Content-Type: application/json
-
-{
-	"message": "안녕하세요"
-}
-```
-
-### 인증
-
-로그인 성공 시 API가 반환한 `session_id`를 프런트엔드가 저장하고, 이후 보호된 요청에 `X-Session-ID` 헤더로 전달합니다.
-
-| 메서드 | 경로               | 설명                             |
-| ------ | ------------------ | -------------------------------- |
-| POST   | `/api/auth/signup` | 매장 이름과 계정 정보로 회원가입 |
-| POST   | `/api/auth/login`  | 로그인 후 세션 쿠키 발급         |
-| POST   | `/api/auth/logout` | 세션 폐기와 쿠키 삭제            |
-| GET    | `/api/auth/me`     | 세션 쿠키로 로그인한 점주 조회   |
-
-### 사건
-
-로그인한 점주의 매장 번호로 범위가 제한되며, 세션 쿠키가 없으면 `401`을 반환합니다.
-
-| 메서드 | 경로                             | 설명                     |
-| ------ | -------------------------------- | ------------------------ |
-| GET    | `/api/events`                    | 사건 목록 조회           |
-| GET    | `/api/events/{event_id}`         | 사건 상세 조회           |
-| POST   | `/api/events/{event_id}/status`  | 사건 상태 변경           |
-| GET    | `/api/events/{event_id}/history` | 사건 상태 변경 이력 조회 |
-
-### 수요·발주
-
-로그인 세션의 매장에 매핑된 수요 서비스 토큰으로 요청하며, 브라우저는 하위 서비스 토큰을 직접 전달하지 않습니다.
-점주가 매장에서 감지된 사건을 확인하고 처리하는 웹 애플리케이션입니다. React 프런트엔드, FastAPI 업무 백엔드, CCTV 탐지 서비스, 수요 예측·발주 서비스로 구성되며 Docker Compose로 통합 실행할 수 있습니다.
-
-## 주요 기능
-
-- 점주 회원가입·로그인과 `X-Session-ID` 세션 헤더 인증
-- 로그인한 점주의 매장으로 범위가 제한된 사건 조회, 상태 변경, 이력 확인
-- 사건 영상과 대표 이미지 조회
-- CCTV 행동 분석 및 카메라 연결 끊김 감시 결과를 내부 웹훅으로 수신
-- `storeops-demand`의 수요 예측과 발주 초안을 인증된 백엔드 프록시로 제공
-- PostgreSQL 영속 저장 또는 로컬 개발용 메모리 저장
-
-## 구성
-
-| 구성 요소          | 역할                                        | 기본 주소               |
-| ------------------ | ------------------------------------------- | ----------------------- |
-| `frontend/`        | React 19 점주 화면, Vite 개발 서버          | `http://localhost:5173` |
-| `backend/`         | 인증, 사건 API, 수요 프록시, 내부 사건 수신 | `http://localhost:8000` |
-| `storeops-demand/` | 수요 예측, 발주 초안 API와 데모 화면        | `http://localhost:8765` |
-| `storeops_ai/`     | 영상 행동 분석 및 카메라 연결 감시 API      | `http://localhost:8100` |
-| PostgreSQL         | 통합 실행 시 계정·세션·사건 저장            | `localhost:5433`        |
-
-프런트엔드 개발 서버는 `/api` 요청을 백엔드로 프록시합니다. Compose 실행 시 프런트엔드 컨테이너도 같은 경로로 `backend`에 연결합니다. 수요 서비스 인증 토큰은 브라우저에 전달되지 않습니다.
-
-## 저장소 구조
-
-```text
-.
-├── backend/          # FastAPI 앱, 마이그레이션, 단위 테스트
-├── docs/             # 요구사항, DB 설계, 개발 가이드
-├── frontend/         # React/Vite 점주 웹 애플리케이션
-├── storeops-demand/  # 예측·발주 서비스와 테스트
-├── storeops_ai/      # CCTV 탐지 서비스와 파이프라인
-├── docker-compose.yml
-└── README.md
-```
-
-세부 설계와 각 서비스의 전체 설정은 [DB 설계서](docs/DB_설계서.md), [요구사항 명세서](docs/StoreOps_AI_요구사항_명세서.md), [수요 서비스 안내](storeops-demand/README.md), [CCTV 탐지 안내](storeops_ai/README.md)를 참고하세요.
-
-## 요구 사항
-
-- Windows PowerShell 또는 호환 터미널
-- Node.js와 npm: 프런트엔드 개발용
-- Python: 백엔드 및 독립 서비스 실행용. 서비스별 상세 버전과 모델 설치 조건은 각 서비스 문서 참고
-- Docker Desktop 및 Docker Compose 플러그인: 전체 서비스 통합 실행용
-
-## 빠른 시작: 화면과 백엔드
-
-사건 API와 인증 화면을 확인하는 가장 간단한 방법입니다. 터미널을 두 개 열고 각 서비스를 실행합니다. 이 모드에서는 계정과 데이터가 메모리에 저장되며, 백엔드 재시작 시 초기화됩니다.
-
-터미널 1에서 백엔드를 설치하고 실행합니다.
-
-```powershell
-cd backend
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-pip install -r requirements.txt
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
-```
-
-터미널 2에서 프런트엔드를 설치하고 실행합니다.
-
-```powershell
-cd frontend
-npm install
-npm run dev -- --host 0.0.0.0
-```
-
-브라우저에서 [http://localhost:5173](http://localhost:5173)을 열고 회원가입한 뒤 로그인합니다. 새 매장은 처음에 사건이 없습니다. 실제 탐지 사건을 보려면 CCTV 탐지 서비스와 내부 웹훅 연동을 설정하세요. 백엔드 연결은 [헬스 체크](http://localhost:8000/api/health)에서 확인할 수 있습니다.
-
-## 전체 서비스: Docker Compose
-
-Compose는 프런트엔드, 백엔드, PostgreSQL, 수요 서비스, CCTV 탐지 서비스를 함께 실행합니다. 백엔드는 아래 세 환경변수를 요구하므로 프로젝트 루트의 `.env`에 실제 값으로 설정한 후 기동합니다. `.env`와 토큰은 저장소에 커밋하거나 브라우저에 노출하지 마세요.
-
-```dotenv
-STOREOPS_DEMAND_TOKENS_JSON={"S01":"<수요-서비스-토큰>"}
-STOREOPS_AI_INGEST_TOKENS_JSON={"<탐지-토큰>":"S01"}
-STOREOPS_AI_INGEST_TOKEN=<탐지-토큰>
-```
-
-수요 토큰 맵의 키와 탐지 토큰 맵의 값은 각각 서비스를 사용할 매장 ID입니다. 신규 설치의 첫 매장은 보통 `S01`부터 발급됩니다. 가입 계정이 다른 매장 ID를 사용한다면 두 JSON 매핑도 그 ID에 맞추세요. 탐지 컨테이너의 `STOREOPS_AI_INGEST_TOKEN` 값은 백엔드 매핑의 토큰 키와 일치해야 합니다. 위 토큰 문자열은 형식 예시이며 실제 발급된 인증 토큰으로 바꿔야 합니다.
-
-환경을 준비한 다음 프로젝트 루트에서 실행합니다.
-
-```powershell
-docker compose up -d --build
-docker compose ps
-```
-
-| 서비스             | 주소                                                                                                      |
-| ------------------ | --------------------------------------------------------------------------------------------------------- |
-| 점주 화면          | [http://localhost:5173](http://localhost:5173)                                                            |
-| 업무 API / OpenAPI | [http://localhost:8000](http://localhost:8000) / [http://localhost:8000/docs](http://localhost:8000/docs) |
-| 수요 서비스        | [http://localhost:8765](http://localhost:8765)                                                            |
-| CCTV 탐지 API      | [http://localhost:8100](http://localhost:8100)                                                            |
-| PostgreSQL         | `localhost:5433`                                                                                          |
-
-PostgreSQL 접속 정보는 개발 환경 기준 `storeops` 데이터베이스, `storeops` 사용자이며 초기 비밀번호는 Compose 파일에 정의되어 있습니다. 운영 환경에서는 기본 비밀번호를 반드시 교체하세요. 테이블은 최초 DB 볼륨 생성 시 `backend/migrations/001_initial_schema.sql`로 초기화됩니다. 컨테이너를 중지하려면 `docker compose down`을 실행합니다. DB 볼륨까지 삭제하려면 `docker compose down -v`를 사용하세요. 이 명령은 저장된 개발 데이터도 삭제합니다.
-
-## CCTV 사건 연결
-
-탐지 서비스는 분석 결과를 `POST /api/internal/events`로 백엔드에 전달합니다. 백엔드는 `EVENT_INGEST_TOKEN`을 매장 ID에 매핑하고, 사건의 매장 범위와 ID를 서버에서 결정합니다.
-
-```text
-storeops_ai -> backend 내부 사건 API -> PostgreSQL -> 점주 화면
-```
-
-Compose 환경에서 분석할 영상 파일을 `storeops_ai/input/sample.mp4`에 둔 뒤 다음 요청을 보냅니다.
+전체 Compose 실행 후 입력 영상을 `storeops_ai/input/sample.mp4`에 두고 분석 요청을 보낼 수 있습니다.
 
 ```powershell
 $body = @{ video_path = "/app/input/sample.mp4"; camera_id = "CAM-01" } | ConvertTo-Json
 Invoke-RestMethod http://localhost:8100/path1/analyze -Method Post -ContentType "application/json" -Body $body
 ```
 
-사건이 생성되면 탐지 결과와 미디어가 저장되고, 웹훅을 통해 백엔드에 등록됩니다. 매장 계정으로 화면에 로그인해 사건을 확인하세요. 영상 모델·임계값·처리 파이프라인은 [CCTV 탐지 서비스 안내](storeops_ai/README.md)를 참고하세요.
+탐지 파이프라인과 모델 설정은 [CCTV 탐지 README](storeops_ai/README.md)를 참고하세요.
 
 ## API 개요
 
-로그인 후 보호 API를 호출할 때 로그인 응답의 `session_id`를 `X-Session-ID` 헤더로 전달합니다. 사건과 발주 데이터는 세션 점주의 매장으로 제한됩니다.
+로그인 응답의 `session_id`를 보호된 요청의 `X-Session-ID` 헤더로 전달합니다. 사건과 발주 API는 세션 점주의 매장으로 범위가 제한됩니다.
 
-| 메서드        | 경로                                           | 용도                    |
-| ------------- | ---------------------------------------------- | ----------------------- |
-| `GET`         | `/api/health`                                  | 백엔드 상태 확인        |
-| `POST`        | `/api/echo`                                    | 연결 확인용 메시지 에코 |
-| `POST`        | `/api/auth/signup`                             | 매장 및 점주 계정 생성  |
-| `POST`        | `/api/auth/login`                              | 로그인 및 세션 발급     |
-| `POST`        | `/api/auth/logout`                             | 세션 폐기               |
-| `GET`         | `/api/auth/me`                                 | 현재 로그인 사용자 조회 |
-| `GET`         | `/api/events`                                  | 사건 목록 조회          |
-| `GET`         | `/api/events/{event_id}`                       | 사건 상세 조회          |
-| `POST`        | `/api/events/{event_id}/status`                | 사건 상태 변경          |
-| `GET`         | `/api/events/{event_id}/history`               | 상태 변경 이력 조회     |
-| `GET`, `POST` | `/api/demand/orders/drafts`                    | 발주 초안 조회·생성     |
-| `POST`        | `/api/demand/orders/drafts/{draft_id}/approve` | 발주 초안 승인          |
-| `POST`        | `/api/internal/events`                         | 인증된 탐지 사건 수신   |
+| 메서드        | 경로                                                        | 설명                            |
+| ------------- | ----------------------------------------------------------- | ------------------------------- |
+| `GET`         | `/api/health`                                               | 백엔드 상태 확인                |
+| `POST`        | `/api/auth/signup`                                          | 매장·점주 계정 생성             |
+| `POST`        | `/api/auth/login`                                           | 로그인 및 세션 발급             |
+| `POST`        | `/api/auth/logout`                                          | 세션 폐기                       |
+| `GET`         | `/api/auth/me`                                              | 현재 로그인 사용자 조회         |
+| `GET`         | `/api/events`                                               | 매장 사건 목록                  |
+| `GET`         | `/api/events/{event_id}`                                    | 사건 상세                       |
+| `POST`        | `/api/events/{event_id}/status`                             | 사건 상태 변경                  |
+| `GET`         | `/api/events/{event_id}/history`                            | 상태 변경 이력                  |
+| `GET`         | `/api/events/{event_id}/clip`                               | 사건 영상                       |
+| `GET`         | `/api/events/{event_id}/representative-images/{media_type}` | 대표 이미지                     |
+| `GET`, `POST` | `/api/demand/orders/drafts`                                 | 발주 초안 조회·생성             |
+| `POST`        | `/api/demand/orders/forecast-draft`                         | 수요 예측 기반 발주 초안 생성   |
+| `POST`        | `/api/demand/orders/drafts/{draft_id}/approve`              | 발주 초안 승인                  |
+| `POST`        | `/api/internal/events`                                      | Bearer 토큰 인증 탐지 사건 수신 |
+| `POST`        | `/api/ask`                                                  | 로그인 점주의 운영 기록 질문    |
+| `GET`         | `/api/ask/{question_session_id}/log`                        | 질문 처리 도구 실행 로그 조회   |
 
-전체 요청·응답 스키마는 백엔드의 `/docs`에서 확인할 수 있습니다. 발주 초안 생성 요청은 `Idempotency-Key` 헤더를 사용합니다.
+발주 초안 생성은 `Idempotency-Key` 헤더를 사용합니다. 전체 요청·응답 형식은 백엔드의 `/docs`에서 확인할 수 있습니다.
 
-## 검증
+## 테스트 및 빌드
 
-백엔드 단위 테스트와 문법 검사를 실행합니다.
+백엔드:
 
 ```powershell
 cd backend
@@ -394,7 +271,7 @@ python -m compileall app
 python -m unittest discover -s tests -p "test_*.py" -v
 ```
 
-프런트엔드 정적 검사와 프로덕션 빌드를 실행합니다.
+프런트엔드:
 
 ```powershell
 cd frontend
@@ -403,7 +280,7 @@ npm run lint
 npm run build
 ```
 
-수요 서비스 테스트는 해당 폴더의 가상환경에 의존성을 설치한 뒤 실행합니다.
+수요 서비스(가상환경에서 실행):
 
 ```powershell
 cd storeops-demand
@@ -414,8 +291,8 @@ pip install --no-deps -e .
 python -m pytest -q
 ```
 
-CCTV 탐지 서비스의 설치, 단독 실행, 영상 테스트는 [서비스 README](storeops_ai/README.md)에 설명되어 있습니다. 서비스별 실행 및 검증 방법은 [개발 지침](AGENTS.md)도 참고하세요.
+## 기여 및 라이선스
 
-## 라이선스
+작업 규칙, 브랜치·커밋 관례, 서비스별 검증 절차는 [AGENTS.md](AGENTS.md)를 참고하세요. 변경 후 해당 서비스의 lint·build 또는 테스트를 실행합니다.
 
 현재 저장소에는 별도 라이선스가 지정되어 있지 않습니다.

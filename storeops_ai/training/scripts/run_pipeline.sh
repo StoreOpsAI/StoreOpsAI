@@ -1,5 +1,5 @@
 #!/bin/bash
-# 다중 클래스(전도/폭행/파손/방화/절도) 학습 파이프라인
+# 다중 클래스(쓰러짐/싸움/파손/쓰레기 투기) 학습 파이프라인
 #
 # 컨테이너 안에서 실행:
 #   bash scripts/run_pipeline.sh
@@ -20,9 +20,8 @@ RAW_VAL=raw/val
 DS_TRAIN=datasets/train
 DS_VAL=datasets/val
 
-# 폭행(fight)은 출처가 NIA2019로 달라 배경 shortcut 위험이 커서 베이스라인에서 제외.
-# 나중에 AI-Hub 폭행 영상을 구하면 여기서 빼면 된다.
-EXCLUDE=fight
+# 요구 분류에 없는 방화/연기/절도 클래스는 학습에서 제외한다.
+EXCLUDE=fire,smoke,theft
 # 정상 클립이 다른 클래스(영상당 1개, 약 30개)와 비슷해지도록 비율 조정
 NORMAL_RATIO=0.2
 
@@ -42,11 +41,13 @@ echo "1단계: 프레임 추출 (train / val 동일 옵션)"
 echo "=============================================="
 python scripts/extract_multiclass.py \
   --videos $RAW_TRAIN --labels $RAW_TRAIN --out $DS_TRAIN \
+  --data-source aihub_public \
   --frames $FRAMES --extract_normals --normals_per_video 1 \
   --normal_video_ratio $NORMAL_RATIO --exclude_classes $EXCLUDE
 
 python scripts/extract_multiclass.py \
   --videos $RAW_VAL --labels $RAW_VAL --out $DS_VAL \
+  --data-source aihub_public \
   --frames $FRAMES --extract_normals --normals_per_video 1 \
   --normal_video_ratio $NORMAL_RATIO --exclude_classes $EXCLUDE
 
@@ -87,5 +88,5 @@ echo "체크포인트: runs/mc_stage2/best.pt"
 echo
 echo "다음 단계:"
 echo "  1) 클래스별 정확도를 확인하세요 (전체 정확도보다 중요)"
-echo "  2) 절도/방화는 낮게 나오는 것이 정상입니다"
+echo "  2) 클래스별 정확도와 오탐/미탐을 확인하세요"
 echo "  3) 학습에 쓰지 않은 원본 영상으로 실제 추론 테스트를 하세요"

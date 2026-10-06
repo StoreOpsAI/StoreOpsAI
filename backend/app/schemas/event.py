@@ -21,6 +21,21 @@ class EventVlm(BaseModel):
 
     status: Literal['pending', 'completed', 'failed', 'not_applicable']
     summary: str | None = None
+    uncertain_points: str | None = None
+    owner_actions: list[str] = Field(default_factory=list)
+    error: str | None = None
+    model_name: str | None = None
+
+
+class EventVlmUpdateRequest(BaseModel):
+    """비동기 VLM 작업 결과를 탐지 서비스에서 수신합니다."""
+
+    status: Literal['completed', 'failed']
+    observation: str | None = Field(default=None, max_length=4000)
+    uncertain_points: str | None = Field(default=None, max_length=4000)
+    owner_actions: list[str] = Field(default_factory=list, max_length=3)
+    error: str | None = Field(default=None, max_length=2000)
+    model_name: str | None = Field(default=None, max_length=120)
 
 
 class EventMediaReference(BaseModel):
@@ -82,6 +97,7 @@ class EventIngestRequest(BaseModel):
     event_type: str = Field(min_length=1, max_length=32)
     category: str | None = None
     confidence: float | None = Field(default=None, ge=0, le=1)
+    threshold: float | None = Field(default=None, ge=0, le=1)
     scores: dict[str, float] = Field(default_factory=dict)
     occurred_at: datetime | None = None
     created_at: datetime | None = None

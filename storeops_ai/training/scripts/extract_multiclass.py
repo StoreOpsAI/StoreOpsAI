@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-다중 이벤트 클래스(전도/폭행/파손/방화/절도/유기) 프레임 추출기.
+다중 이벤트 클래스(쓰러짐/싸움/파손/쓰레기 투기 등) 프레임 추출기.
 
 이벤트 타입마다 동작의 시간 특성이 달라서 자르는 방식을 다르게 한다.
 단, 출력 프레임 수는 모든 클래스가 동일해야 한다(배치 학습 요건).
@@ -13,7 +13,7 @@
 
 사용법:
     python3 extract_multiclass.py --videos ~/aihub_all --labels ~/aihub_all \
-        --out ~/dataset_train --frames 24 --extract_normals
+        --out ~/dataset_train --data-source aihub_public --frames 24 --extract_normals
 
     # 타입별 설정을 바꾸려면
     python3 extract_multiclass.py ... --config my_config.json
@@ -31,7 +31,7 @@ import numpy as np
 
 EVENT_PREFIXES = ["abandon", "broken", "fall", "fight", "fire", "smoke", "theft"]
 
-KOREAN = {"abandon": "유기", "broken": "파손", "fall": "전도", "fight": "폭행",
+KOREAN = {"abandon": "쓰레기 투기", "broken": "파손", "fall": "쓰러짐", "fight": "싸움",
           "fire": "방화", "smoke": "연기", "theft": "절도", "normal": "정상"}
 
 CORE_KEYPOINTS = {"Pelvis", "Spine naval", "Spine chest", "Neck base", "Center head"}
@@ -358,6 +358,11 @@ def main():
     ap.add_argument("--videos", required=True)
     ap.add_argument("--labels", default=None, help="기본: --videos와 동일")
     ap.add_argument("--out", required=True)
+    ap.add_argument("--data-source", required=True,
+                     choices=["aihub_public", "team_consented"],
+                     help="허용된 원본 영상 출처")
+    ap.add_argument("--consent-confirmed", action="store_true",
+                     help="팀원 연기 영상의 촬영·학습 동의를 확인했음을 표시")
     ap.add_argument("--frames", type=int, default=24,
                      help="클립당 출력 프레임 수 (모든 클래스 공통)")
     ap.add_argument("--config", default=None, help="타입별 설정 JSON (생략 시 기본값)")
@@ -371,11 +376,12 @@ def main():
     ap.add_argument("--max_clips_per_video", type=int, default=6,
                      help="sliding 모드에서 영상 1개당 만들 최대 클립 수")
     ap.add_argument("--seed", type=int, default=42)
-    ap.add_argument("--nia_falldown_as_fall", action="store_true",
-                     help="NIA2019 폭행 영상의 falldown 동작을 전도(fall) 데이터로도 사용")
     ap.add_argument("--exclude_classes", default="",
                      help="학습에서 뺄 클래스(쉼표 구분). 예: fight")
     args = ap.parse_args()
+
+    if args.data_source == "team_consented" and not args.consent_confirmed:
+        ap.error("팀원 연기 영상은 동의를 확인한 경우에만 --consent-confirmed를 지정하세요.")
 
     exclude_classes = {c.strip() for c in args.exclude_classes.split(",") if c.strip()}
     if exclude_classes:
@@ -409,8 +415,12 @@ def main():
             n_no_video += 1
             continue
 
-        spans = find_event_spans(xml_path, use_falldown=args.nia_falldown_as_fall,
-                                  seen_actions=seen_actions)
+        if detect_format(xml_path) != "cvat":
+            print(f"[제외] 허용된 AI Hub/팀원 CVAT 라벨 형식이 아닙니다: {stem}")
+            n_excluded += 1
+            continue
+
+        spans = find_event_spans(xml_path, seen_actions=seen_actions)
         if not spans:
             print(f"[경고] 이벤트 없음: {stem} (형식={detect_format(xml_path)})")
             n_no_event += 1
@@ -487,6 +497,8 @@ def main():
                     "window_start": int(plan[0]), "window_end": int(plan[-1]),
                     "settle_frame": settle_info, "num_frames": n_saved, "fps": fps,
                     "source_video": video_path.name,
+                    "data_source": args.data_source,
+                    "consent_confirmed": str(args.consent_confirmed).lower(),
                 }
                 (clip_out / "meta.json").write_text(
                     json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -530,6 +542,8 @@ def main():
                         "window_start": int(plan[0]), "window_end": int(plan[-1]),
                         "settle_frame": pseudo, "num_frames": n_saved, "fps": fps,
                         "source_video": video_path.name,
+                        "data_source": args.data_source,
+                        "consent_confirmed": str(args.consent_confirmed).lower(),
                     }
                     (clip_out / "meta.json").write_text(
                         json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -553,12 +567,6 @@ def main():
         print("\n=== 라벨 형식별 영상 수 ===")
         for k in sorted(fmt_stats):
             print(f"  {k:8} : {fmt_stats[k]}")
-    if seen_actions:
-        print("\n=== NIA2019에서 발견된 action 목록 ===")
-        print("  (학습에 넣고 싶지 않은 게 있으면 NIA_ACTION_EXCLUDE에 추가하세요)")
-        for k in sorted(seen_actions, key=lambda x: -seen_actions[x]):
-            print(f"  {k:32} {seen_actions[k]}회")
-
     print("\n=== 클래스별 클립 수 ===")
     for k in sorted(stats, key=lambda x: -stats[x]):
         print(f"  {KOREAN.get(k, k):4} ({k:7}) : {stats[k]}")
