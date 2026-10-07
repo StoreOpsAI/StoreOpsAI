@@ -20,10 +20,10 @@
 - [행동분류 모델 연결 (FR-EVT-05)](#행동분류-모델-연결-fr-evt-05)
 - [설치](#설치)
 - [환경 변수 / 설정값](#환경-변수--설정값-configconfigpy)
-- [Path 1 실행 (CLI)](#path-1-테스트)
-- [Path 2 실행 (API 서버)](#path-2-테스트)
+- [Path 1 테스트](#path-1-테스트)
+- [Path 2 테스트](#path-2-테스트)
 - [출력 구조](#출력)
-- [Windows 적용](#windows-적용)
+- [Windows 로컬 실행](#windows-로컬-실행)
 - [트러블슈팅](#트러블슈팅)
 
 ## 프로젝트 구조
@@ -31,47 +31,17 @@
     storeops_ai/
     ├── main.py                    # FastAPI 앱, 런타임·자동 입력 감시기 시작
     ├── requirements.txt
-    ├── yolo11n.pt                 # YOLOv11 사람 탐지 사전학습 가중치
-    │
-    ├── api/
-    │   ├── routes_path1.py        # Path1(행동 분류) 관련 엔드포인트
-    │   └── routes_path2.py        # Path2(카메라 끊김) 관련 엔드포인트
-    │
-    ├── config/
-    │   └── config.py               # 임계값, 경로 등 전역 설정 (모두 환경변수로 override 가능)
-    │
-    ├── models/
-    │   ├── yolo_detector.py       # YOLO + ByteTrack 래퍼 (FR-EVT-01~02)
-    │   ├── i3d_classifier.py      # 학습된 S3D 체크포인트 로드 + 추론 (FR-EVT-05)
-    │   └── vlm_analyzer.py        # VLM(비전-언어 모델) 2차 검증 연동부
-    │
-    ├── pipelines/
-    │   ├── path1_behavior.py      # 파일 기반 행동 분류 파이프라인
-    │   └── path2_connection.py    # 프레임 수신 시각 감시 로직
-    ├── services/
-    │   ├── camera_runtime.py      # 스트림 수신 워커와 연결 감시 스케줄러
-    │   ├── input_watcher.py       # input 폴더 영상 자동 분석
-    │   └── realtime.py            # WebSocket 사건 브로드캐스트
-    │
-    ├── schemas/
-    │   └── event_schema.py        # 사건 후보(EventCandidate) pydantic 모델
-    │
-    ├── utils/
-    │   ├── clip_manager.py        # 프레임 저장 / 대표 이미지 추출
-    │   ├── event_manager.py       # 사건 ID 채번(E001, E002 ...) 및 JSON 저장
-    │   └── notification.py        # 1차 알림 발송
-    │
-    ├── tools/                     # S3D·VLM 단독 확인 및 WSL vLLM 실행 도구
-    ├── webcam_i3d.py              # 별도 웹캠 모델 점검 도구
-    │
-    ├── training/                   # 학습 산출물 (handoff_0921)
-    │   ├── manifests/             # train/val 클립 목록 (학습에 쓴 데이터 목록. 프레임 이미지 자체는 포함되지 않음)
-    │   ├── runs/
-    │   │   ├── mc_stage1/         # 1단계: 백본 동결, head만 학습 (val_acc 0.615)
-    │   │   └── mc_stage2/         # 2단계: 전체 미세조정 (val_acc 0.750) <- 기본 사용
-    │   └── scripts/               # extract_multiclass.py(프레임 추출), train_i3d.py(학습), check_shortcut_risk.py, run_pipeline.sh
-    │
-    └── output/                     # 실행 결과물 (아래 "출력" 항목 참고)
+    ├── yolo11n.pt                 # YOLOv11 사람 탐지 가중치
+    ├── api/                        # Path 1·Path 2 API
+    ├── config/                     # 임계값, 경로, 모델 설정
+    ├── models/                     # YOLO, S3D 분류기, VLM 연동
+    ├── pipelines/                  # 행동 분석과 카메라 연결 감시
+    ├── services/                   # 스트림 런타임, 입력 감시, WebSocket
+    ├── schemas/                    # 이벤트 스키마
+    ├── tools/                      # S3D·VLM 확인 및 WSL vLLM 실행 도구
+    ├── training/                   # 학습 산출물과 스크립트
+    ├── webcam_i3d.py               # 독립 웹캠 분류 점검 도구
+    └── output/                     # 실행 중 생성되는 클립·이미지·이벤트
 
 ## 동작 개요 (Path 1 / Path 2)
 
@@ -81,30 +51,25 @@ FastAPI 시작 시 Path 2 감시 스케줄러와 `input/` 폴더 감시기가 �
   기록된 영상으로 분석합니다. YOLO/ByteTrack으로 사람을 확인하고, 사람 ID가
   하나 이상 있는 구간에 한해 전체 장면의 4초 창을 2초 간격으로 분류합니다.
   임계값 초과 시 사건 JSON·클립·대표 이미지 저장과 1차 알림을 진행하고,
-  Qwen VLM 검증 및 후속 영상 저장은 비동기로 반영합니다. 별도
-  `webcam_i3d.py`는 분류기 반응을 확인하는 테스트 도구이며 이벤트 파이프라인은
-  아닙니다.
-- **Path 2 (카메라 연결 감시)**: 프레임 내용을 분석하지 않고 마지막 수신 시각을
-  관리합니다. `/path2/streams`에 스트림을 등록하면 수신 워커가 프레임 시각을
-  갱신하고 스케줄러가 끊김을 검사합니다. 외부 수신기는 `/path2/frame`을 호출할
-  수 있습니다. 현재 상태는 메모리 기반이며 서버 재시작 시 초기화됩니다.
+  Qwen VLM 검증 및 후속 영상 저장은 비동기로 반영합니다.
+- **Path 2 (카메라 연결 감시)**: 프레임 내용은 분석하지 않고 마지막 수신 시각을
+  관리합니다. `/path2/streams` 등록 시 프레임 수신 워커와 감시 스케줄러를
+  사용합니다. 외부 수신기는 `/path2/frame`을 호출할 수 있습니다. 연결 상태는
+  메모리 기반이며 서버 재시작 시 초기화됩니다.
 
 ## 적용 범위
 
 ### Path 1 --- 행동 분류
 
-- FR-EVT-01 YOLO 사람 위치/탐지점수
-- FR-EVT-02 ByteTrack 추적번호
+- FR-EVT-01 YOLO 사람 위치와 탐지 점수
+- FR-EVT-02 ByteTrack 추적 번호
 - FR-EVT-03 화면 전체 입력, 추적 ID는 사건 연계용
 - FR-EVT-04 4초 분류 창, 2초 간격(50% 겹침), 분류 버퍼 3fps
-- FR-EVT-05 서비스 출력은 정상·쓰러짐·싸움·파손·쓰레기 투기 5개 점수
+- FR-EVT-05 정상·쓰러짐·싸움·파손·쓰레기 투기 5개 서비스 점수
 - FR-EVT-06 카테고리별 임계값 초과 시 사건 후보 발급
 - FR-EVT-07 VLM과 독립된 1차 알림
-- FR-EVT-08 10초 사건 영상 + 카메라 번호
-- FR-EVT-13 처음/가운데/끝 대표 이미지 최대 3장
-- FR-EVT-14 VLM 3항목 검사
-- FR-EVT-15 VLM 지연/실패가 사건/알림에 영향 없음
-- FR-EVT-16 끊김 사건은 VLM 미실행
+- FR-EVT-08 10초 사건 영상과 카메라 번호
+- FR-EVT-13 처음·가운데·끝 대표 이미지 최대 3장
 
 ### Path 2 --- 카메라 끊김
 
@@ -168,12 +133,12 @@ python -m tools.verify_i3d --frames-dir some_clip_folder     # extract_multiclas
 
 ```bash
 # 가상환경 생성 및 활성화
-python -m venv venv
+python -m venv .venv
 
-# Windows
-venv\Scripts\activate
+# Windows PowerShell
+.\.venv\Scripts\Activate.ps1
 # Mac / Linux
-source venv/bin/activate
+source .venv/bin/activate
 
 # 패키지 설치
 pip install -r requirements.txt
@@ -588,104 +553,37 @@ Path2 끊김 사건이 계속 재생성됨 `/path2/frame`을 호출해 정상 �
 `FIGHT`입니다. 기본 체크포인트에는 싸움 학습 라벨이 없어 `FIGHT`는
 0.0으로 표시됩니다. `FIRE`와 `THEFT`는 현재 서비스 점수에서 제외됩니다.
 
-## 1. 프로젝트 루트
+## 웹캠 실행
 
-Windows CMD/PowerShell에서:
-
-```bat
-cd C:\storeops_ai
-```
-
-또는 실제 압축을 푼 프로젝트 경로로 이동합니다.
-
-## 2. 가상환경 활성화
-
-```bat
-venv\Scripts\activate
-```
-
-이미 활성화되어 있으면 생략합니다.
-
-## 3. 실행
-
-```bat
+```powershell
+cd storeops_ai
+.\.venv\Scripts\Activate.ps1
 python webcam_i3d.py
 ```
 
-웹캠 번호가 0이 아니면:
-
-```bat
-python webcam_i3d.py --camera 1
-```
-
-## 4. 화면에서 확인할 것
-
-이 스크립트는 YOLO·ByteTrack 이벤트 파이프라인과 별개로 최근 웹캠 구간을
-S3D 모델에 직접 넣어 다음 점수를 표시합니다.
-
-- NORMAL
-- FALL
-- BROKEN
-- LITTERING
-- FIGHT (기본 체크포인트에서는 0.0)
-
-기본적으로 8초를 모은 뒤 약 2초마다 추론합니다. 점수가 0.60을 초과한
-비정상 서비스 카테고리는 `EVENT DETECTED`로 표시합니다.
-
-## 5. CPU가 너무 느릴 때
-
-웹캠 화면은 별도 스레드로 계속 표시되지만, 모델 추론 자체가 CPU에서는
-느릴 수 있습니다.
-
-추론 간격을 늘리려면:
-
-```bat
-python webcam_i3d.py --interval-sec 4
-```
-
-판정 구간을 10초로 바꾸려면:
-
-```bat
-python webcam_i3d.py --window-sec 10
-```
-
-GPU를 사용하는 PC라면 프로젝트 설정의 `I3D_DEVICE=cuda`를 사용할 수
-있습니다.
-
-## 주의
-
-이 웹캠 테스트는 **학습 때와 같은 전체 화면(full-frame) 입력**을
-사용합니다. 따라서 먼저 모델 자체가 웹캠 영상에서 반응하는지 확인하는
-용도입니다.
-
-운영 Path 1은 별도로 FastAPI 서버, 자동 입력 폴더 감시 또는 `POST
-/path1/analyze`를 사용합니다. 웹캠 점검 스크립트 자체는 이벤트를 발급하거나
-백엔드로 전송하지 않습니다.
+웹캠 번호가 0이 아니면 `--camera 1`을 지정합니다. 기본 입력 창은 8초이며,
+2초마다 추론합니다. CPU가 느리면 `--interval-sec 4`처럼 간격을 늘리거나
+`--window-sec 10`으로 입력 창을 조정할 수 있습니다. 이 도구는 모델 점검 전용이며
+이벤트를 발급하거나 백엔드로 전송하지 않습니다.
 
 ---
 
 # Qwen3-VL-8B-Instruct-FP8 + vLLM on WSL2 / Ubuntu
 
-이 문서는 **Windows PowerShell에서 WSL2 Ubuntu 환경을 처음 구성하는
-단계부터** NVIDIA GPU 확인, Python 가상환경 구성,
-PyTorch/FlashInfer/vLLM 설치, Qwen3-VL-8B-Instruct-FP8 실행 및 API
-확인까지의 과정을 정리한 README입니다.
-
-현재 실제로 정상 동작이 확인된 환경을 기준으로 작성했습니다.
-
----
+이 절에서는 Windows의 WSL2 Ubuntu에 NVIDIA GPU용 Python 환경을 구성하고,
+Qwen3-VL-8B-Instruct-FP8을 vLLM 서버로 실행하는 방법을 안내합니다.
 
 ## 1. 최종 구성
 
 ```text
 Windows
 └─ WSL2
-   └─ Ubuntu 26.04.1 LTS
-      └─ Python virtual environment: qwen-vllm
-         ├─ PyTorch 2.13.0+cu130
-         ├─ FlashInfer 0.6.18.post1
-         └─ vLLM
-            └─ Qwen/Qwen3-VL-8B-Instruct-FP8
+  └─ Ubuntu 26.04.1 LTS
+    └─ Python virtual environment: qwen-vllm
+      ├─ PyTorch 2.13.0+cu130
+      ├─ FlashInfer 0.6.18.post1
+      └─ vLLM
+        └─ Qwen/Qwen3-VL-8B-Instruct-FP8
 ```
 
 ### 실제 확인된 하드웨어 / 소프트웨어
@@ -988,8 +886,6 @@ vLLM을 설치합니다.
 
 ```bash
 uv pip install --python "$HOME/qwen-vllm/bin/python" vllm
-uv pip install --python "$HOME/qwen-vllm/bin/python" \
-  nvidia-nvvm==13.0.88 nvidia-cuda-crt==13.0.88
 ```
 
 설치 확인:
@@ -1003,12 +899,6 @@ vllm --version
 # 12. 사용할 Qwen 모델
 
 RTX A4000의 VRAM은 약 16 GB이므로 다음 FP8 모델을 사용합니다.
-
-```text
-Qwen/Qwen3-VL-8B-Instruct-FP8
-```
-
-모델 이름은 정확하게 입력합니다.
 
 ```text
 Qwen/Qwen3-VL-8B-Instruct-FP8
@@ -1034,29 +924,16 @@ bash storeops_ai/tools/start_qwen_vllm.sh
 `Qwen/Qwen3-VL-8B-Instruct-FP8`, 포트 `8001`, 요청당 이미지 3장, 최대 문맥
 길이 `4096`으로 서버를 실행합니다.
 
-### 실행 옵션
+### 스크립트 설정값
 
----
-
-옵션 값 설명
-
----
-
-`--host` `0.0.0.0` 외부 인터페이스에서 API
-접근
-
-`--port` `8001` vLLM API 포트
-
-`--limit-mm-per-prompt` `{"image":3,"video":0}` 프롬프트당 이미지 최대
-3장
-
-`--gpu-memory-utilization` `0.90` GPU 메모리 사용 목표
-
-`--max-model-len` `4096` 최대 context 길이
-
----
-
----
+| 항목 | 값 | 설명 |
+| --- | --- | --- |
+| `QWEN_VLM_MODEL` | `Qwen/Qwen3-VL-8B-Instruct-FP8` | 모델 ID 환경변수 |
+| `QWEN_VLLM_PORT` | `8001` | 공개할 API 포트 환경변수 |
+| `--host` | `0.0.0.0` | 스크립트에서 고정 |
+| `--limit-mm-per-prompt` | `{"image":3,"video":0}` | 요청당 이미지 최대 3장, 비디오 미사용 |
+| `--gpu-memory-utilization` | `0.90` | 스크립트에서 고정 |
+| `--max-model-len` | `4096` | 스크립트에서 고정 |
 
 # 14. 서버 정상 실행 확인
 

@@ -50,7 +50,7 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 | `STOREOPS_DEMAND_TOKENS_JSON`    | `{}`                    | 매장 ID를 수요 서비스 토큰에 대응시키는 JSON 객체입니다.                            |
 | `STOREOPS_DEMAND_TOKEN`          | 미설정                  | 매장별 토큰 맵에 항목이 없을 때 사용하는 선택적 대체 토큰입니다.                    |
 | `STOREOPS_AI_INGEST_TOKENS_JSON` | 미설정                  | CCTV 탐지 토큰을 매장 ID에 대응시키는 JSON 객체입니다.                              |
-| `STOREOPS_QNA_URL`               | `http://127.0.0.1:8002` | 질문 Agent 내부 API 주소입니다. Compose에서는 `http://qna-agent:8002`를 사용합니다. |
+| `STOREOPS_QNA_URL`               | `http://127.0.0.1:8002` | 질문 Agent 내부 API 주소입니다. Compose에서는 루트 `.env`의 원격 Agent LAN 주소를 사용합니다. |
 | `STOREOPS_QNA_TOKEN`             | 미설정                  | 질문 Agent와 공유하는 서버 간 인증 토큰입니다. 질문 기능에 필요합니다.              |
 
 [`backend/.env.example`](.env.example)은 DB·탐지 설정 예시입니다. 전체 Compose 필수 변수에는 수요 토큰 맵과 `STOREOPS_QNA_TOKEN`도 포함되므로 [루트 README](../README.md)의 `.env` 항목을 함께 확인하세요. 예시의 PostgreSQL 호스트 `postgres`는 컨테이너 내부 주소이며, Windows에서 직접 실행하면서 DB에 연결할 때는 `localhost:5433`을 사용해야 합니다. `.env` 파일이나 실제 토큰은 저장소에 커밋하지 마세요.
@@ -114,7 +114,7 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
 ### 점주 질문 서비스
 
-`POST /api/ask`는 로그인 점주의 매장 사건·발주 기록을 백엔드에서 조회한 뒤 질문 Agent의 `/internal/ask`로 전달합니다. Agent 실행 로그는 `GET /api/ask/{question_session_id}/log`로 조회합니다. Compose에서는 백엔드가 `qna-agent:8002`, Agent가 `qna-llm:8000`으로 연결됩니다. 매뉴얼 RAG를 쓰려면 Agent 쪽 규정 문서 색인과 임베딩 모델도 준비해야 합니다.
+`POST /api/ask`는 로그인 점주의 매장 사건·발주 기록을 백엔드에서 조회한 뒤 `STOREOPS_QNA_URL`의 원격 질문 Agent `/internal/ask`로 전달합니다. Agent 실행 로그는 `GET /api/ask/{question_session_id}/log`로 조회합니다. 질문 Agent는 원격 PC의 Docker 네트워크에서 텍스트 LLM에 연결하며, 메인 백엔드는 Agent에만 접속합니다. 매뉴얼 RAG를 쓰려면 원격 Agent 쪽 규정 문서 색인과 임베딩 모델도 준비해야 합니다.
 
 ## 테스트 및 검증
 
@@ -127,7 +127,7 @@ python -m unittest discover -s tests -p "test_*.py" -v
 
 ## Docker Compose
 
-프로젝트 루트의 `.env`에 수요 서비스 토큰 맵, 탐지 토큰 맵, 탐지 컨테이너 토큰, `STOREOPS_QNA_TOKEN`과 로컬 GGUF 모델 경로를 설정합니다. Compose에서 백엔드는 `qna-agent` health 상태에 의존하므로 질문 토큰, 모델 파일 또는 질문 Agent 데이터 파일이 준비되지 않으면 기동이 실패할 수 있습니다. 전체 변수와 Compose 전제조건은 [루트 README](../README.md)를 참고하세요.
+프로젝트 루트의 `.env`에 수요 서비스 토큰 맵, 탐지 토큰 맵, 탐지 컨테이너 토큰, 원격 Agent 주소 `STOREOPS_QNA_URL`, `STOREOPS_QNA_TOKEN`을 설정합니다. 질문 Agent와 텍스트 LLM은 별도 PC에서 실행되므로 메인 Compose는 해당 컨테이너에 의존하지 않습니다. 원격 Agent가 중지되어 있으면 백엔드는 기동되지만 질문 요청은 실패합니다. 전체 변수와 전제조건은 [루트 README](../README.md)를 참고하세요.
 
 ```powershell
 docker compose up -d --build backend postgres demand storeops-ai

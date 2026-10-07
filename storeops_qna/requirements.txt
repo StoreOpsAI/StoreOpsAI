@@ -1,8 +1,0 @@
-# 핵심(에이전트·도구·DB)은 numpy, pyyaml 만 있으면 동작합니다.
-numpy>=1.26
-pyyaml>=6.0
-# 매뉴얼 검색용 임베딩 (BAAI/bge-m3, 한국어 지원)
-sentence-transformers>=3.0
-# 서버 (python -m storeops_qna.cli serve)
-fastapi>=0.110
-uvicorn>=0.29
