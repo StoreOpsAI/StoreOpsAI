@@ -1,13 +1,16 @@
 """사건 상태 전이와 변경 이력을 검증하는 단위 테스트입니다."""
 
 import unittest
+from datetime import datetime, timezone
+import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
+from fastapi import HTTPException
 
-from app.repositories.event_repository import EventRepository
+from app.repositories.event_repository import EventRepository, PostgresEventRepository
 from app.routers.internal_events import create_internal_events_router, _store_representative_images
-from app.schemas.event import Event, EventIngestRequest, EventVlm
+from app.schemas.event import Event, EventIngestRequest, EventVlm, EventVlmUpdateRequest
 from app.services.event_service import (
     EventService,
     InvalidEventStatusTransitionError,
@@ -79,6 +82,7 @@ class EventServiceTest(unittest.TestCase):
             event_type='fall',
             category='전도',
             confidence=0.91,
+            threshold=0.60,
             scores={'fall': 0.91},
             occurred_at='2026-09-22T12:00:00+09:00',
         )
@@ -89,9 +93,116 @@ class EventServiceTest(unittest.TestCase):
         self.assertEqual(event.store_id, 'S02')
         self.assertNotEqual(event.event_id, payload.event_id)
         self.assertEqual(event.event_type, 'fall')
+        self.assertEqual(event.threshold, 0.60)
         self.assertEqual(event.status, 'unconfirmed')
         self.assertNotEqual(duplicate.event_id, event.event_id)
         self.assertEqual(len(self.service.list_events('S02')), 2)
+
+    def test_maps_live_webcam_categories_to_dashboard_event_types(self) -> None:
+        """실시간 웹캠 모델의 한글 카테고리를 사건 화면 종류로 변환합니다."""
+
+        router = create_internal_events_router(self.service)
+        ingest = router.routes[0].endpoint
+        categories = {
+            '쓰러짐': 'fall',
+            '싸움': 'fight',
+            '파손': 'vandalism',
+            '쓰레기 투기': 'littering',
+        }
+        with patch.dict('os.environ', {'STOREOPS_AI_INGEST_TOKENS_JSON': '{"test-token":"S02"}'}, clear=False):
+            for index, (category, expected_type) in enumerate(categories.items(), start=1):
+                with self.subTest(category=category):
+                    payload = EventIngestRequest(
+                        event_id=f'E{100 + index}',
+                        camera_id='CAM-01',
+                        event_type='행동',
+                        category=category,
+                        confidence=0.8,
+                        threshold=0.6,
+                        scores={category: 0.8},
+                    )
+                    event = ingest(payload, 'Bearer test-token')
+
+                    self.assertEqual(event.event_type, expected_type)
+
+    def test_camera_reconnect_is_time_rule_without_vlm(self) -> None:
+        """카메라 재연결은 행동 분석/VLM 없이 시간 규칙 사건으로 저장합니다."""
+
+        router = create_internal_events_router(self.service)
+        ingest = router.routes[0].endpoint
+        payload = EventIngestRequest(
+            event_id='E102',
+            camera_id='CAM-02',
+            event_type='카메라재연결',
+            category='카메라재연결',
+            disconnect_seconds=90,
+            disconnect_threshold_seconds=60,
+        )
+        with patch.dict('os.environ', {'STOREOPS_AI_INGEST_TOKENS_JSON': '{"test-token":"S02"}'}, clear=False):
+            event = ingest(payload, 'Bearer test-token')
+
+        self.assertEqual(event.event_type, 'camera_reconnected')
+        self.assertEqual(event.source, 'time_rule')
+        self.assertEqual(event.vlm.status, 'not_applicable')
+        self.assertEqual(event.gap_sec, 90)
+
+    def test_updates_behavior_event_with_structured_vlm_result(self) -> None:
+        """비동기 VLM 결과는 인증된 행동 사건에 구조화해 저장합니다."""
+
+        router = create_internal_events_router(self.service)
+        update = next(
+            route.endpoint for route in router.routes
+            if route.path == '/api/internal/events/{event_id}/vlm'
+        )
+        payload = EventVlmUpdateRequest(
+            status='completed',
+            observation='사람이 바닥에 앉아 있습니다.',
+            uncertain_points='넘어지는 장면은 확인되지 않습니다.',
+            owner_actions=['현장 확인', '카메라 시야 점검', '필요 시 직원 확인'],
+            model_name='Qwen/Qwen3-VL-8B-Instruct',
+        )
+        with patch.dict('os.environ', {'STOREOPS_AI_INGEST_TOKENS_JSON': '{"test-token":"S01"}'}, clear=False):
+            updated = update('E015', payload, 'Bearer test-token')
+
+        self.assertEqual(updated.vlm.status, 'completed')
+        self.assertEqual(updated.vlm.summary, '사람이 바닥에 앉아 있습니다.')
+        self.assertEqual(len(updated.vlm.owner_actions), 3)
+        self.assertEqual(updated.vlm.model_name, 'Qwen/Qwen3-VL-8B-Instruct')
+
+    def test_rejects_incomplete_vlm_result(self) -> None:
+        """관찰·불확실성·점주 확인 3개 항목이 없으면 완료 결과를 거부합니다."""
+
+        router = create_internal_events_router(self.service)
+        update = next(
+            route.endpoint for route in router.routes
+            if route.path == '/api/internal/events/{event_id}/vlm'
+        )
+        payload = EventVlmUpdateRequest(
+            status='completed', observation='관찰', uncertain_points='불확실', owner_actions=['한 항목'],
+        )
+        with patch.dict('os.environ', {'STOREOPS_AI_INGEST_TOKENS_JSON': '{"test-token":"S01"}'}, clear=False):
+            with self.assertRaises(HTTPException) as error:
+                update('E015', payload, 'Bearer test-token')
+
+        self.assertEqual(error.exception.status_code, 422)
+
+    def test_postgres_event_row_restores_structured_vlm_fields(self) -> None:
+        """DB 조회 행을 점주 화면에서 읽을 구조화 VLM 결과로 복원합니다."""
+
+        event = PostgresEventRepository._event_from_row(
+            (
+                'E105', 'S01', 'CAM-01', 'behavior_model', 'fall',
+                datetime.now(timezone.utc), {'fall': 0.8}, 0.6, None, None,
+                'completed', '사람이 바닥에 앉아 있습니다.', 'output/clips/E105_10sec.mp4', 10,
+                'unconfirmed', 'real', [], '넘어지는 장면은 보이지 않습니다.',
+                json.dumps(['현장 확인', '직원 확인', '카메라 확인'], ensure_ascii=False), None,
+                'Qwen/Qwen3-VL-8B-Instruct',
+            )
+        )
+
+        self.assertEqual(event.vlm.uncertain_points, '넘어지는 장면은 보이지 않습니다.')
+        self.assertEqual(event.vlm.owner_actions, ['현장 확인', '직원 확인', '카메라 확인'])
+        self.assertEqual(event.vlm.model_name, 'Qwen/Qwen3-VL-8B-Instruct')
 
     def test_detector_images_keep_db_media_types_and_original_uris(self) -> None:
         """각 프레임 URI는 API 사건 ID와 무관하게 DB 미디어 행에 보존합니다."""

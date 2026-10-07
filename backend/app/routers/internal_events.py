@@ -8,8 +8,8 @@ from pathlib import Path
 
 from fastapi import APIRouter, Header, HTTPException, status
 
-from app.schemas.event import Event, EventClip, EventIngestRequest, EventMediaReference, EventVlm
-from app.services.event_service import EventService
+from app.schemas.event import Event, EventClip, EventIngestRequest, EventMediaReference, EventVlm, EventVlmUpdateRequest
+from app.services.event_service import EventNotFoundError, EventService
 
 
 # NFR-09: 모든 사건 시각은 한국 시간(+09:00) 기준으로 저장한다.
@@ -29,8 +29,13 @@ CATEGORY_EVENT_TYPES = {
     "abandon": "littering",
     "theft": "theft",
     "fight": "fight",
+    "쓰러짐": "fall",
+    "싸움": "fight",
+    "파손": "vandalism",
+    "쓰레기 투기": "littering",
     "카메라끊김": "camera_disconnect",
     "camera_disconnect": "camera_disconnect",
+    "카메라재연결": "camera_reconnected",
 }
 
 
@@ -50,10 +55,13 @@ def create_internal_events_router(event_service: EventService) -> APIRouter:
         if not store_id:
             raise HTTPException(status_code=401, detail="탐지 서비스 인증이 필요합니다.")
 
-        event_type = CATEGORY_EVENT_TYPES.get(payload.category or "", payload.event_type)
-        is_disconnect = event_type == "camera_disconnect"
+        event_type = CATEGORY_EVENT_TYPES.get(
+            payload.category or "",
+            CATEGORY_EVENT_TYPES.get(payload.event_type, payload.event_type),
+        )
+        is_connection_event = event_type in {"camera_disconnect", "camera_reconnected"}
         occurred_at = _to_korea_time(payload.occurred_at or payload.created_at)
-        source = "time_rule" if is_disconnect else "behavior_model"
+        source = "time_rule" if is_connection_event else "behavior_model"
         clip_path = payload.event_video_path or payload.clip_path
         clip_length = 0
         if payload.clip_start_time_sec is not None and payload.clip_end_time_sec is not None:
@@ -76,14 +84,53 @@ def create_internal_events_router(event_service: EventService) -> APIRouter:
             clip=EventClip(uri=clip_path, length_sec=clip_length) if clip_path else None,
             representative_images=representative_images,
             scores=payload.scores,
-            threshold=payload.confidence if not is_disconnect else None,
-            gap_sec=round(payload.disconnect_seconds) if is_disconnect and payload.disconnect_seconds is not None else None,
-            threshold_sec=round(payload.disconnect_threshold_seconds) if is_disconnect and payload.disconnect_threshold_seconds is not None else None,
-            vlm=EventVlm(status="pending"),
+            threshold=payload.threshold if not is_connection_event else None,
+            gap_sec=round(payload.disconnect_seconds) if is_connection_event and payload.disconnect_seconds is not None else None,
+            threshold_sec=round(payload.disconnect_threshold_seconds) if is_connection_event and payload.disconnect_threshold_seconds is not None else None,
+            vlm=EventVlm(status="not_applicable" if is_connection_event else "pending"),
             status="unconfirmed",
             data_label=payload.data_label,
         )
         return event_service.ingest(event)
+
+    @router.post("/events/{event_id}/vlm", response_model=Event)
+    def update_vlm_result(
+        event_id: str,
+        payload: EventVlmUpdateRequest,
+        authorization: str | None = Header(default=None),
+    ) -> Event:
+        """인증된 탐지 서비스의 VLM 분석 결과를 해당 매장 사건에 반영합니다."""
+
+        received_token = authorization.removeprefix("Bearer ").strip() if authorization else None
+        store_id = _load_token_store_map().get(received_token or "")
+        if not store_id:
+            raise HTTPException(status_code=401, detail="탐지 서비스 인증이 필요합니다.")
+
+        try:
+            event = event_service.get_event(event_id)
+        except EventNotFoundError as error:
+            raise HTTPException(status_code=404, detail="사건을 찾을 수 없습니다.") from error
+        if event.store_id != store_id:
+            raise HTTPException(status_code=403, detail="해당 매장 사건에 접근할 수 없습니다.")
+        if payload.status == "completed" and (
+            not payload.observation
+            or not payload.uncertain_points
+            or len(payload.owner_actions) != 3
+        ):
+            raise HTTPException(status_code=422, detail="완료된 VLM 결과에는 관찰, 불확실성, 점주 확인 3개 항목이 필요합니다.")
+
+        vlm = EventVlm(
+            status=payload.status,
+            summary=payload.observation,
+            uncertain_points=payload.uncertain_points,
+            owner_actions=payload.owner_actions,
+            error=payload.error,
+            model_name=payload.model_name,
+        )
+        try:
+            return event_service.update_vlm(event_id, vlm)
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
 
     return router
 

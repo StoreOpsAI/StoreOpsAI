@@ -7,7 +7,8 @@ import {
   getEvents,
   updateEventStatus,
 } from "./api/events";
-import { approveDraft, createDraft, getDrafts } from "./api/demand";
+import { approveDraft, createForecastDraft, getDrafts } from "./api/demand";
+import { askQuestion, getQuestionLog } from "./api/questions";
 import "./App.css";
 
 // 서버의 상태 값은 운영 화면에서 읽기 쉬운 한국어로 표시합니다.
@@ -19,8 +20,9 @@ const statusLabels = {
 };
 const eventTypeLabels = {
   camera_disconnect: "카메라 끊김",
-  fall: "낙상 의심",
-  fight: "다툼 의심",
+  camera_reconnected: "카메라 재연결",
+  fall: "쓰러짐 의심",
+  fight: "싸움 의심",
   fire: "방화 의심",
   theft: "절도 의심",
   vandalism: "기물 훼손",
@@ -28,7 +30,10 @@ const eventTypeLabels = {
   broken: "기물 훼손",
   abandon: "쓰레기 투기",
   카메라끊김: "카메라 끊김",
-  전도: "낙상 의심",
+  전도: "쓰러짐 의심",
+  쓰러짐: "쓰러짐 의심",
+  싸움: "싸움 의심",
+  "쓰레기 투기": "쓰레기 투기",
   파손: "기물 훼손",
   방화: "방화 의심",
   유기: "쓰레기 투기",
@@ -37,15 +42,18 @@ const eventTypeLabels = {
 };
 const scoreLabels = {
   normal: "정상",
-  fall: "낙상",
-  fight: "다툼",
+  fall: "쓰러짐",
+  fight: "싸움",
   fire: "방화",
   theft: "절도",
   vandalism: "기물 훼손",
   littering: "쓰레기 투기",
   broken: "기물 훼손",
   abandon: "쓰레기 투기",
-  전도: "낙상",
+  전도: "쓰러짐",
+  쓰러짐: "쓰러짐",
+  싸움: "싸움",
+  "쓰레기 투기": "쓰레기 투기",
   파손: "기물 훼손",
   방화: "방화",
   유기: "쓰레기 투기",
@@ -290,6 +298,9 @@ function EventDetail({ event, isSubmitting, onStatusChange }) {
               기준값 {Math.round(event.threshold * 100)}%
             </p>
           )}
+          <p className="threshold">
+            현재 저장소의 학습 가중치에는 싸움 클래스가 없어 점수는 0입니다.
+          </p>
         </section>
       )}
       <section className="vlm-section">
@@ -303,16 +314,45 @@ function EventDetail({ event, isSubmitting, onStatusChange }) {
               ? "준비 중"
               : event.vlm.status === "completed"
                 ? "완료"
-                : "실패"}
+                : event.vlm.status === "not_applicable"
+                  ? "대상 아님"
+                  : "실패"}
           </span>
         </div>
         <RepresentativeImages event={event} />
-        <p>
-          {event.vlm.summary ||
-            (event.vlm.status === "pending"
-              ? "행동 설명을 생성하고 있습니다."
-              : "설명을 표시할 수 없습니다.")}
-        </p>
+        {event.vlm.model_name && (
+          <p className="vlm-model">설명 모델 · {event.vlm.model_name}</p>
+        )}
+        {event.vlm.status === "not_applicable" ? (
+          <p>카메라 상태 사건에는 영상 분석을 적용하지 않습니다.</p>
+        ) : event.vlm.status === "pending" ? (
+          <p className="vlm-pending-message" role="status">
+            vLLM 서버에서 이미지 설명을 생성하고 있습니다.
+          </p>
+        ) : event.vlm.status === "failed" ? (
+          <p className="vlm-error">
+            {event.vlm.error || "VLM 설명을 생성하지 못했습니다."}
+          </p>
+        ) : (
+          <div className="vlm-result">
+            <p>
+              <strong>관찰</strong>
+              {event.vlm.summary}
+            </p>
+            <p>
+              <strong>불확실한 점</strong>
+              {event.vlm.uncertain_points}
+            </p>
+            <div>
+              <strong>점주 확인</strong>
+              <ol>
+                {event.vlm.owner_actions.map((action, index) => (
+                  <li key={`${event.event_id}-vlm-${index}`}>{action}</li>
+                ))}
+              </ol>
+            </div>
+          </div>
+        )}
         <small>VLM 설명은 행동 분류 판단의 근거가 아닌 참고 정보입니다.</small>
       </section>
       <div className="action-area">
@@ -479,16 +519,35 @@ function AuthScreen({ onAuthenticated }) {
   );
 }
 
-function OrderPanel() {
-  // 수요 서비스에 전달할 발주 입력과 저장된 초안 목록을 관리합니다.
-  const [form, setForm] = useState({
+function localDateString(date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function offsetDate(value, days) {
+  const date = new Date(`${value}T00:00:00`);
+  date.setDate(date.getDate() + days);
+  return localDateString(date);
+}
+
+function createInitialOrderForm() {
+  const yesterday = offsetDate(localDateString(new Date()), -1);
+  return {
     product_id: "P001",
-    target_date: new Date(Date.now() + 86400000).toISOString().slice(0, 10),
-    d1: "16",
-    d2: "12",
+    as_of: yesterday,
+    history: Array.from({ length: 7 }, () => ({
+      sales: "",
+      status: "observed",
+    })),
     on_hand: "15",
     incoming: "0",
-  });
+    holiday_1: false,
+    holiday_2: false,
+  };
+}
+
+function OrderPanel() {
+  // 수요 서비스에 전달할 발주 입력과 저장된 초안 목록을 관리합니다.
+  const [form, setForm] = useState(createInitialOrderForm);
   const [drafts, setDrafts] = useState([]);
   const [editedQuantities, setEditedQuantities] = useState({});
   const [loadState, setLoadState] = useState("loading");
@@ -535,19 +594,38 @@ function OrderPanel() {
     }));
   };
 
+  const handleHistoryChange = (index, field, value) => {
+    setForm((current) => ({
+      ...current,
+      history: current.history.map((day, dayIndex) =>
+        dayIndex === index ? { ...day, [field]: value } : day,
+      ),
+    }));
+  };
+
   const handleSubmit = async (event) => {
     event.preventDefault();
     setIsSubmitting(true);
     setError("");
     try {
-      await createDraft({
-        ...form,
-        d1: Number(form.d1),
-        d2: Number(form.d2),
+      await createForecastDraft({
+        demand: {
+          product_id: form.product_id,
+          as_of: form.as_of,
+          country: "US",
+          history: form.history.map((day, index) => ({
+            date: offsetDate(form.as_of, index - 6),
+            sales: day.status === "observed" ? Number(day.sales) : null,
+            status: day.status,
+          })),
+          calendar: [1, 2].map((day) => ({
+            date: offsetDate(form.as_of, day),
+            is_holiday: Number(form[`holiday_${day}`]),
+            has_event: 0,
+          })),
+        },
         on_hand: Number(form.on_hand),
         incoming: Number(form.incoming),
-        data_label: "synthetic",
-        forecast_source: "mock",
       });
       await loadDrafts();
     } catch (requestError) {
@@ -587,7 +665,9 @@ function OrderPanel() {
           </div>
         </div>
         <p className="order-form-note">
-          직접 입력한 수요는 합성·모의 자료로 표시됩니다.
+          미국 M5 공개 판매 자료로 학습한 XGBoost 예측입니다. 최근 7일의 상태를
+          구분하며, 휴무·품절·기록 누락을 0으로 대체하지 않습니다. 추천 수량은
+          예측 합계 + 안전재고 - 현재 재고 - 입고 예정으로 계산합니다.
         </p>
         <form className="order-form" onSubmit={handleSubmit}>
           <label>
@@ -600,41 +680,67 @@ function OrderPanel() {
             />
           </label>
           <label>
-            발주 기준일
+            최근 판매 기준일
             <input
-              name="target_date"
+              name="as_of"
               type="date"
-              value={form.target_date}
+              value={form.as_of}
               onChange={handleChange}
               required
             />
           </label>
-          <div className="order-form-row">
-            <label>
-              내일 수요
-              <input
-                name="d1"
-                type="number"
-                min="0"
-                step="0.1"
-                value={form.d1}
-                onChange={handleChange}
-                required
-              />
-            </label>
-            <label>
-              모레 수요
-              <input
-                name="d2"
-                type="number"
-                min="0"
-                step="0.1"
-                value={form.d2}
-                onChange={handleChange}
-                required
-              />
-            </label>
-          </div>
+          <fieldset className="history-fields">
+            <legend>최근 7일 판매 기록</legend>
+            {form.history.map((day, index) => (
+              <div className="history-row" key={index}>
+                <span>{offsetDate(form.as_of, index - 6)}</span>
+                <select
+                  aria-label={`${offsetDate(form.as_of, index - 6)} 기록 상태`}
+                  value={day.status}
+                  onChange={(event) =>
+                    handleHistoryChange(index, "status", event.target.value)
+                  }
+                >
+                  <option value="observed">판매 기록 있음</option>
+                  <option value="closed">휴무</option>
+                  <option value="stockout">품절</option>
+                  <option value="missing">기록 누락</option>
+                </select>
+                <input
+                  aria-label={`${offsetDate(form.as_of, index - 6)} 판매량`}
+                  type="number"
+                  min="0"
+                  step="1"
+                  placeholder="판매량"
+                  value={day.sales}
+                  disabled={day.status !== "observed"}
+                  required={day.status === "observed"}
+                  onChange={(event) =>
+                    handleHistoryChange(index, "sales", event.target.value)
+                  }
+                />
+              </div>
+            ))}
+          </fieldset>
+          <fieldset className="forecast-calendar">
+            <legend>예측 대상일 달력</legend>
+            {[1, 2].map((day) => (
+              <label key={day}>
+                {day === 1 ? "내일" : "모레"} · {offsetDate(form.as_of, day)}{" "}
+                공휴일
+                <input
+                  type="checkbox"
+                  checked={form[`holiday_${day}`]}
+                  onChange={(event) =>
+                    setForm((current) => ({
+                      ...current,
+                      [`holiday_${day}`]: event.target.checked,
+                    }))
+                  }
+                />
+              </label>
+            ))}
+          </fieldset>
           <div className="order-form-row">
             <label>
               현재 재고
@@ -701,9 +807,11 @@ function OrderPanel() {
                   </div>
                   <div className="draft-tags">
                     <span className={`data-label data-${draft.data_label}`}>
-                      {draft.data_label === "synthetic"
-                        ? "합성·모의 자료"
-                        : "실제 자료"}
+                      {draft.forecast_source === "xgboost"
+                        ? "M5 · XGBoost"
+                        : draft.data_label === "synthetic"
+                          ? "합성·모의 자료"
+                          : "실제 자료"}
                     </span>
                     <span className={`draft-status status-${draft.status}`}>
                       {draft.approved ? "승인 완료" : "승인 대기"}
@@ -797,6 +905,207 @@ function OrderPanel() {
           </div>
         )}
       </section>
+    </div>
+  );
+}
+
+function QuestionVideo({ source }) {
+  const [video, setVideo] = useState({ url: "", error: "" });
+
+  useEffect(() => {
+    let active = true;
+    let objectUrl = "";
+    getEventClip(source.event_id, source.video_uri)
+      .then((url) => {
+        objectUrl = url;
+        if (active) setVideo({ url, error: "" });
+      })
+      .catch(() => {
+        if (active) setVideo({ url: "", error: "영상을 불러오지 못했습니다." });
+      });
+    return () => {
+      active = false;
+      if (objectUrl.startsWith("blob:")) URL.revokeObjectURL(objectUrl);
+    };
+  }, [source.event_id, source.video_uri]);
+
+  if (video.error) return <p className="inline-error">{video.error}</p>;
+  return video.url ? (
+    <video
+      className="question-video"
+      src={video.url}
+      controls
+      aria-label={`${source.event_id} 사건 영상`}
+    />
+  ) : (
+    <p className="loading-state">영상 불러오는 중...</p>
+  );
+}
+
+function QuestionsPanel() {
+  const [question, setQuestion] = useState("");
+  const [result, setResult] = useState(null);
+  const [log, setLog] = useState(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [isLogLoading, setIsLogLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+    if (!question.trim() || isLoading) return;
+    setIsLoading(true);
+    setError("");
+    setLog(null);
+    setResult(null);
+    try {
+      setResult(await askQuestion(question.trim()));
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleLog = async () => {
+    if (log) {
+      setLog(null);
+      return;
+    }
+    setIsLogLoading(true);
+    try {
+      setLog(await getQuestionLog(result.session_id));
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      setIsLogLoading(false);
+    }
+  };
+
+  return (
+    <div className="questions-layout">
+      <form className="question-form" onSubmit={handleSubmit}>
+        <label htmlFor="owner-question">매장 운영 질문</label>
+        <div className="question-input-row">
+          <input
+            id="owner-question"
+            value={question}
+            onChange={(event) => setQuestion(event.target.value)}
+            placeholder="매장 기록 또는 점검 규정에 대해 질문하세요"
+            maxLength={500}
+            disabled={isLoading}
+          />
+          <button
+            type="submit"
+            className="primary-button"
+            disabled={!question.trim() || isLoading}
+          >
+            {isLoading ? "조회 중..." : "질문하기"}
+          </button>
+        </div>
+      </form>
+      {error && (
+        <p role="alert" className="inline-error">
+          {error}
+        </p>
+      )}
+      {result && (
+        <section className="question-result" aria-live="polite">
+          <div className="question-result-heading">
+            <h2>답변</h2>
+            <span>
+              질문 #{result.session_id} · 도구 {result.tool_call_count}회
+            </span>
+          </div>
+          <p className="question-answer">{result.answer}</p>
+          {result.needs_confirmation && (
+            <p className="question-confirmation">
+              번호나 조회 조건을 확인한 뒤 다시 질문해 주세요.
+            </p>
+          )}
+          {result.notices
+            ?.filter((notice) => notice !== result.answer)
+            .map((notice, index) => (
+              <p className="question-notice" key={`${index}-${notice}`}>
+                {notice}
+              </p>
+            ))}
+          {result.conditions?.length > 0 && (
+            <div className="question-details">
+              <h3>조회 조건</h3>
+              <ul>
+                {result.conditions.map((condition, index) => (
+                  <li key={`${index}-${condition}`}>{condition}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {result.grounded_sentences?.length > 0 && (
+            <div className="question-details">
+              <h3>문장별 근거</h3>
+              <ol className="question-evidence">
+                {result.grounded_sentences.map((sentence, index) => (
+                  <li key={`${index}-${sentence.text}`}>
+                    <strong>{sentence.text}</strong>
+                    {sentence.evidence?.map((evidence) => (
+                      <blockquote key={evidence.chunk_id}>
+                        <small>
+                          {evidence.doc_name} · {evidence.doc_version} ·{" "}
+                          {evidence.doc_status || "상태 미지정"} ·{" "}
+                          {evidence.section} · {evidence.chunk_id}
+                        </small>
+                        <p>{evidence.text}</p>
+                      </blockquote>
+                    ))}
+                  </li>
+                ))}
+              </ol>
+            </div>
+          )}
+          {result.sources
+            ?.filter((source) => source.type === "video")
+            .map((source) => (
+              <div className="question-details" key={source.event_id}>
+                <h3>
+                  {source.event_id} · {source.camera_id} ·{" "}
+                  {source.clip?.length_sec ?? "?"}초
+                </h3>
+                <QuestionVideo source={source} />
+              </div>
+            ))}
+          <button
+            type="button"
+            className="question-log-toggle"
+            onClick={handleLog}
+            disabled={isLogLoading}
+          >
+            {isLogLoading
+              ? "기록 불러오는 중..."
+              : log
+                ? "실행 기록 닫기"
+                : "실행 기록 보기"}
+          </button>
+          {log && (
+            <ol className="question-log">
+              {log.tool_calls.map((step) => (
+                <li key={step.step}>
+                  <strong>
+                    {step.tool_name || "모델"} · {step.result_status}
+                  </strong>
+                  <p>선택 이유: {step.reason || "기록 없음"}</p>
+                  <details>
+                    <summary>입력과 결과</summary>
+                    <pre>
+                      {step.input}
+                      {"\n"}
+                      {step.output || step.rejected_reason}
+                    </pre>
+                  </details>
+                </li>
+              ))}
+            </ol>
+          )}
+        </section>
+      )}
     </div>
   );
 }
@@ -972,27 +1281,41 @@ function App() {
       <section className="page-content">
         <div className="page-heading">
           <div>
-            <p className="eyebrow">오늘의 운영 현황</p>
-            <h1>{activeTab === "orders" ? "발주 관리" : "사건 확인"}</h1>
+            <p className="eyebrow">
+              {activeTab === "questions"
+                ? "매장 기록과 규정"
+                : "오늘의 운영 현황"}
+            </p>
+            <h1>
+              {activeTab === "orders"
+                ? "발주 관리"
+                : activeTab === "questions"
+                  ? "매장 질문"
+                  : "사건 확인"}
+            </h1>
             <p>
               {activeTab === "orders"
                 ? "수요와 재고를 바탕으로 발주 초안을 만들고 승인합니다."
-                : "매장에서 감지된 이상 상황을 검토하고 처리합니다."}
+                : activeTab === "questions"
+                  ? "매장 기록을 조회하고 점검 규정의 근거를 확인합니다."
+                  : "매장에서 감지된 이상 상황을 검토하고 처리합니다."}
             </p>
           </div>
-          <button
-            type="button"
-            className="refresh-button"
-            onClick={loadEvents}
-            disabled={loadState === "loading"}
-          >
-            ↻ 새로고침
-          </button>
+          {activeTab === "events" && (
+            <button
+              type="button"
+              className="refresh-button"
+              onClick={loadEvents}
+              disabled={loadState === "loading"}
+            >
+              ↻ 새로고침
+            </button>
+          )}
         </div>
         {activeTab === "orders" ? (
           <OrderPanel />
-        ) : activeTab !== "events" ? (
-          <EmptyState message="이 화면은 다음 개발 단계에서 연결됩니다." />
+        ) : activeTab === "questions" ? (
+          <QuestionsPanel />
         ) : (
           <div className="workspace-grid">
             <section className="list-panel">

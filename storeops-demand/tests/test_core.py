@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 import pytest
 from pydantic import ValidationError
-from storeops.data import normalize_sales
+from storeops.data import load_m5, normalize_sales
 from storeops.forecast import feature_table, FEATURES, train_evaluate, Forecaster
 from storeops.orders import OrderInput,calculate_order
 
@@ -38,6 +38,28 @@ def test_missing_not_zero():
     assert pd.isna(panel.iloc[1].sales)
     assert list(panel.status)==['observed','missing','stockout','closed']
     with pytest.raises(ValueError):normalize_sales(pd.concat([frame,frame]))
+
+def test_load_m5_defaults_to_all_ten_stores(tmp_path):
+    stores=['CA_1','CA_2','CA_3','CA_4','TX_1','TX_2','TX_3','WI_1','WI_2','WI_3']
+    rows=[{'id':f'item_1_{store}_evaluation','item_id':'item_1','store_id':store,
+           'state_id':store.split('_')[0],'cat_id':'FOODS','d_1':1,'d_2':2}
+          for store in stores]
+    pd.DataFrame(rows).to_csv(tmp_path/'sales_train_validation.csv',index=False)
+    pd.DataFrame([
+        {'d':'d_1','date':'2016-01-01','event_type_1':None,'event_type_2':None,
+         'event_name_1':None,'event_name_2':None},
+        {'d':'d_2','date':'2016-01-02','event_type_1':None,'event_type_2':None,
+         'event_name_1':None,'event_name_2':None},
+    ]).to_csv(tmp_path/'calendar.csv',index=False)
+
+    panel, _, audit = load_m5(tmp_path, max_products=120)
+
+    assert panel.store_id.nunique()==10
+    assert audit['store_count']==10 and audit['product_types']==1
+
+    single_store, _, single_audit = load_m5(tmp_path, store='CA_1', max_products=120)
+    assert single_store.store_id.unique().tolist()==['CA_1']
+    assert single_audit['store_count']==1
 
 def sample():
     dates=pd.date_range('2025-01-01',periods=100)

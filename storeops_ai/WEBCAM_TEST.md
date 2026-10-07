@@ -5,15 +5,9 @@
 기본 모델:
 `training/runs/mc_stage2/best.pt`
 
-학습 라벨은 다음 6개입니다.
-- normal → 정상
-- fall → 전도
-- broken → 파손
-- fire → 방화
-- abandon → 유기
-- theft → 절도
+운영 화면은 정상, 쓰러짐, 싸움, 파손, 쓰레기 투기 다섯 점수를 표시합니다. 기존 abandon은 쓰레기 투기 점수로 연결되며, fire/theft 점수는 노출하지 않습니다.
 
-현재 체크포인트에는 `fight(폭행)` 학습 클래스가 없으므로 폭행은 이 모델로 감지되지 않습니다.
+현재 체크포인트에는 `fight(싸움)` 학습 클래스가 없으므로 싸움 점수는 0.0이며 이 모델로 싸움 사건을 발급하지 않습니다.
 
 ## 1. 프로젝트 루트
 
@@ -51,14 +45,12 @@ python webcam_i3d.py --camera 1
 
 - NORMAL
 - FALL
+- FIGHT (현재 가중치에서는 0.0)
 - BROKEN
-- FIRE
-- ABANDON
-- THEFT
-- FIGHT (항상 0.0)
+- LITTERING
 
 기본적으로 8초를 모은 뒤 약 2초마다 추론합니다.
-점수가 0.60 이상인 비정상 클래스는 `EVENT DETECTED`로 표시합니다.
+점수가 0.60을 초과한 비정상 클래스는 `EVENT DETECTED`로 표시합니다.
 
 ## 5. CPU가 너무 느릴 때
 

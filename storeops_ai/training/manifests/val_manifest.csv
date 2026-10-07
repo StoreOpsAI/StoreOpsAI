@@ -1,0 +1,53 @@
+﻿clip_folder,event_type,label,mode,source_format,gender,age_group,raw_start_frame,raw_end_frame,window_start,window_end,settle_frame,num_frames,fps,source_video
+C_3_11_34_BU_SMA_09-05_15-28-52_CA_RGB_DF2_M4_F4__abandon,abandon,abandon,uniform,cvat,female,advanced age,69,161,39,179,,24,3.0,C_3_11_34_BU_SMA_09-05_15-28-52_CA_RGB_DF2_M4_F4.mp4
+C_3_11_34_BU_SMB_09-05_13-36-40_CB_RGB_DF2_M4_F4__abandon,abandon,abandon,uniform,cvat,female,advanced age,56,139,26,169,,24,3.0,C_3_11_34_BU_SMB_09-05_13-36-40_CB_RGB_DF2_M4_F4.mp4
+C_3_11_34_BU_SMB_09-05_13-36-40_CB_RGB_DF2_M4_F4__normal_1,normal,normal,normal,cvat,female,advanced age,4,27,4,27,12,24,3.0,C_3_11_34_BU_SMB_09-05_13-36-40_CB_RGB_DF2_M4_F4.mp4
+C_3_11_35_BU_DYA_07-29_11-49-41_CF_RGB_DF2_M2__abandon,abandon,abandon,uniform,cvat,male,young people,137,179,107,179,,24,3.0,C_3_11_35_BU_DYA_07-29_11-49-41_CF_RGB_DF2_M2.mp4
+C_3_11_35_BU_DYA_07-29_11-49-41_CF_RGB_DF2_M2__normal_1,normal,normal,normal,cvat,male,young people,13,36,13,36,26,24,3.0,C_3_11_35_BU_DYA_07-29_11-49-41_CF_RGB_DF2_M2.mp4
+C_3_11_35_BU_SMC_10-14_10-20-53_CB_RGB_DF2_M2_F2__abandon,abandon,abandon,uniform,cvat,female,young people,70,152,40,179,,24,3.0,C_3_11_35_BU_SMC_10-14_10-20-53_CB_RGB_DF2_M2_F2.mp4
+C_3_11_36_BU_DYA_08-10_16-42-21_CA_RGB_DF2_M2_F2__abandon,abandon,abandon,uniform,cvat,female,young people,77,171,47,179,,24,3.0,C_3_11_36_BU_DYA_08-10_16-42-21_CA_RGB_DF2_M2_F2.mp4
+C_3_11_36_BU_DYA_08-10_16-42-21_CA_RGB_DF2_M2_F2__normal_1,normal,normal,normal,cvat,female,young people,27,50,27,50,33,24,3.0,C_3_11_36_BU_DYA_08-10_16-42-21_CA_RGB_DF2_M2_F2.mp4
+C_3_11_38_BU_DYA_07-29_15-53-58_CD_RGB_DF2_F2__abandon,abandon,abandon,uniform,cvat,female,young people,130,167,100,180,,24,3.0,C_3_11_38_BU_DYA_07-29_15-53-58_CD_RGB_DF2_F2.mp4
+C_3_11_38_BU_DYA_07-29_15-53-58_CD_RGB_DF2_F2__normal_1,normal,normal,normal,cvat,female,young people,29,52,29,52,40,24,3.0,C_3_11_38_BU_DYA_07-29_15-53-58_CD_RGB_DF2_F2.mp4
+C_3_11_38_BU_DYB_10-16_14-41-46_CC_RGB_DF2_M1_F1__abandon,abandon,abandon,uniform,cvat,female,child,63,161,33,180,,24,3.0,C_3_11_38_BU_DYB_10-16_14-41-46_CC_RGB_DF2_M1_F1.mp4
+C_3_11_38_BU_DYB_10-16_14-41-46_CC_RGB_DF2_M1_F1__normal_1,normal,normal,normal,cvat,female,child,6,29,6,29,19,24,3.0,C_3_11_38_BU_DYB_10-16_14-41-46_CC_RGB_DF2_M1_F1.mp4
+C_3_11_38_BU_SMC_10-14_15-22-40_CD_RGB_DF2_F3_M3__abandon,abandon,abandon,uniform,cvat,male,middle age,80,159,50,179,,24,3.0,C_3_11_38_BU_SMC_10-14_15-22-40_CD_RGB_DF2_F3_M3.mp4
+C_3_11_39_BU_DYB_10-16_14-43-25_CE_RGB_DF2_F1_M1__abandon,abandon,abandon,uniform,cvat,male,child,68,168,38,179,,24,3.0,C_3_11_39_BU_DYB_10-16_14-43-25_CE_RGB_DF2_F1_M1.mp4
+C_3_12_40_BU_SMC_10-14_11-43-44_CE_RGB_DF2_M2__theft,theft,theft,sliding,cvat,male,young people,76,142,97,120,,24,3.0,C_3_12_40_BU_SMC_10-14_11-43-44_CE_RGB_DF2_M2.mp4
+C_3_12_41_BU_DYB_10-16_14-50-58_CB_RGB_DF2_M1__theft,theft,theft,sliding,cvat,male,child,79,134,96,119,,24,3.0,C_3_12_41_BU_DYB_10-16_14-50-58_CB_RGB_DF2_M1.mp4
+C_3_12_42_BU_DYA_07-29_15-23-55_CD_RGB_DF2_F2__theft,theft,theft,sliding,cvat,female,young people,110,145,115,138,,24,3.0,C_3_12_42_BU_DYA_07-29_15-23-55_CD_RGB_DF2_F2.mp4
+C_3_12_42_BU_SMC_10-14_12-15-24_CB_RGB_DF2_F2__theft,theft,theft,sliding,cvat,female,young people,76,136,97,120,,24,3.0,C_3_12_42_BU_SMC_10-14_12-15-24_CB_RGB_DF2_F2.mp4
+C_3_12_44_BU_DYB_10-16_14-56-44_CA_RGB_DF2_F1__theft,theft,theft,sliding,cvat,female,child,85,134,98,121,,24,3.0,C_3_12_44_BU_DYB_10-16_14-56-44_CA_RGB_DF2_F1.mp4
+C_3_12_44_BU_DYB_10-16_14-56-44_CA_RGB_DF2_F1__normal_1,normal,normal,normal,cvat,female,child,27,50,27,50,36,24,3.0,C_3_12_44_BU_DYB_10-16_14-56-44_CA_RGB_DF2_F1.mp4
+C_3_12_48_BU_DYB_10-17_13-46-19_CA_RGB_DF2_M3__theft,theft,theft,sliding,cvat,male,middle age,81,144,102,125,,24,3.0,C_3_12_48_BU_DYB_10-17_13-46-19_CA_RGB_DF2_M3.mp4
+C_3_12_48_BU_DYB_10-17_13-46-19_CA_RGB_DF2_M3__normal_1,normal,normal,normal,cvat,male,middle age,21,44,21,44,27,24,3.0,C_3_12_48_BU_DYB_10-17_13-46-19_CA_RGB_DF2_M3.mp4
+C_3_12_49_BU_DYA_07-29_14-13-29_CF_RGB_DF2_F3__theft,theft,theft,sliding,cvat,female,middle age,73,157,106,129,,24,3.0,C_3_12_49_BU_DYA_07-29_14-13-29_CF_RGB_DF2_F3.mp4
+C_3_12_49_BU_DYB_10-17_13-47-59_CD_RGB_DF2_M3__theft,theft,theft,sliding,cvat,male,middle age,68,122,85,108,,24,3.0,C_3_12_49_BU_DYB_10-17_13-47-59_CD_RGB_DF2_M3.mp4
+C_3_7_11_BU_DYA_07-27_12-29-28_CC_RGB_DF2_F2__fall,fall,fall,motion_split,cvat,female,young people,115,179,100,179,119,24,3.0,C_3_7_11_BU_DYA_07-27_12-29-28_CC_RGB_DF2_F2.mp4
+C_3_7_14_BU_DYB_08-10_14-35-40_CF_RGB_DF2_F2__fall,fall,fall,motion_split,cvat,female,young people,115,179,100,179,122,24,3.0,C_3_7_14_BU_DYB_08-10_14-35-40_CF_RGB_DF2_F2.mp4
+C_3_7_15_BU_SMB_09-02_13-04-23_CD_RGB_DF2_F2__fall,fall,fall,motion_split,cvat,female,young people,77,179,62,179,148,24,3.0,C_3_7_15_BU_SMB_09-02_13-04-23_CD_RGB_DF2_F2.mp4
+C_3_7_15_BU_SMB_09-02_13-04-23_CD_RGB_DF2_F2__normal_1,normal,normal,normal,cvat,female,young people,29,52,29,52,40,24,3.0,C_3_7_15_BU_SMB_09-02_13-04-23_CD_RGB_DF2_F2.mp4
+C_3_7_48_BU_DYB_10-17_10-23-53_CB_RGB_DF2_M2__fall,fall,fall,motion_split,cvat,male,young people,131,179,116,179,179,24,3.0,C_3_7_48_BU_DYB_10-17_10-23-53_CB_RGB_DF2_M2.mp4
+C_3_7_51_BU_DYB_10-17_10-30-20_CE_RGB_DF2_F2__fall,fall,fall,motion_split,cvat,female,young people,134,179,119,179,179,24,3.0,C_3_7_51_BU_DYB_10-17_10-30-20_CE_RGB_DF2_F2.mp4
+C_3_7_53_BU_SMC_10-14_11-55-57_CD_RGB_DF2_F2__fall,fall,fall,motion_split,cvat,female,young people,125,179,110,179,162,24,3.0,C_3_7_53_BU_SMC_10-14_11-55-57_CD_RGB_DF2_F2.mp4
+C_3_7_55_BU_SMC_10-14_09-42-39_CC_RGB_DF2_M3__fall,fall,fall,motion_split,cvat,male,middle age,131,179,116,179,137,24,3.0,C_3_7_55_BU_SMC_10-14_09-42-39_CC_RGB_DF2_M3.mp4
+C_3_7_56_BU_SMC_10-14_15-45-26_CA_RGB_DF2_M3__fall,fall,fall,motion_split,cvat,male,middle age,132,179,117,179,179,24,3.0,C_3_7_56_BU_SMC_10-14_15-45-26_CA_RGB_DF2_M3.mp4
+C_3_8_54_BU_SMC_10-14_13-32-37_CC_RGB_DF2_F3__broken,broken,broken,uniform,cvat,female,middle age,77,145,67,155,,24,3.0,C_3_8_54_BU_SMC_10-14_13-32-37_CC_RGB_DF2_F3.mp4
+C_3_8_55_BU_DYB_10-17_14-19-01_CD_RGB_DF2_M3__broken,broken,broken,uniform,cvat,male,middle age,49,141,39,151,,24,3.0,C_3_8_55_BU_DYB_10-17_14-19-01_CD_RGB_DF2_M3.mp4
+C_3_8_56_BU_SMC_10-14_13-39-12_CB_RGB_DF2_F3__broken,broken,broken,uniform,cvat,female,middle age,72,153,62,163,,24,3.0,C_3_8_56_BU_SMC_10-14_13-39-12_CB_RGB_DF2_F3.mp4
+C_3_8_57_BU_DYA_08-23_15-06-11_CE_RGB_DF2_M3__broken,broken,broken,uniform,cvat,male,middle age,78,149,68,159,,24,3.0,C_3_8_57_BU_DYA_08-23_15-06-11_CE_RGB_DF2_M3.mp4
+C_3_8_57_BU_DYA_08-23_15-06-11_CE_RGB_DF2_M3__normal_1,normal,normal,normal,cvat,male,middle age,14,37,14,37,28,24,3.0,C_3_8_57_BU_DYA_08-23_15-06-11_CE_RGB_DF2_M3.mp4
+C_3_8_58_BU_DYB_10-17_13-20-28_CB_RGB_DF2_M3__broken,broken,broken,uniform,cvat,male,middle age,73,138,63,148,,24,3.0,C_3_8_58_BU_DYB_10-17_13-20-28_CB_RGB_DF2_M3.mp4
+C_3_8_60_BU_SMC_10-13_16-39-42_CB_RGB_DF2_M4__broken,broken,broken,uniform,cvat,male,advanced age,67,118,57,128,,24,3.0,C_3_8_60_BU_SMC_10-13_16-39-42_CB_RGB_DF2_M4.mp4
+C_3_8_61_BU_DYB_10-17_13-26-05_CD_RGB_DF2_F3__broken,broken,broken,uniform,cvat,female,middle age,80,136,70,146,,24,3.0,C_3_8_61_BU_DYB_10-17_13-26-05_CD_RGB_DF2_F3.mp4
+C_3_8_62_BU_DYB_10-17_13-27-37_CA_RGB_DF2_F3__broken,broken,broken,uniform,cvat,female,middle age,85,133,75,143,,24,3.0,C_3_8_62_BU_DYB_10-17_13-27-37_CA_RGB_DF2_F3.mp4
+C_3_9_34_BU_SYB_10-04_12-44-35_CC_RGB_DF2_F3__fire,fire,fire,uniform,cvat,female,middle age,96,131,66,161,,24,3.0,C_3_9_34_BU_SYB_10-04_12-44-35_CC_RGB_DF2_F3.mp4
+C_3_9_35_BU_DYA_08-02_16-49-34_CB_RGB_DF2_F2__fire,fire,fire,uniform,cvat,female,young people,102,140,72,170,,24,3.0,C_3_9_35_BU_DYA_08-02_16-49-34_CB_RGB_DF2_F2.mp4
+C_3_9_35_BU_SMA_09-27_14-10-34_CA_RGB_DF2_F3__fire,fire,fire,uniform,cvat,female,middle age,108,164,78,179,,24,3.0,C_3_9_35_BU_SMA_09-27_14-10-34_CA_RGB_DF2_F3.mp4
+C_3_9_35_BU_SMA_09-27_14-10-34_CA_RGB_DF2_F3__normal_1,normal,normal,normal,cvat,female,middle age,45,68,45,68,53,24,3.0,C_3_9_35_BU_SMA_09-27_14-10-34_CA_RGB_DF2_F3.mp4
+C_3_9_35_BU_SMB_09-02_16-06-31_CD_RGB_DF2_F3__fire,fire,fire,uniform,cvat,female,middle age,109,151,79,179,,24,3.0,C_3_9_35_BU_SMB_09-02_16-06-31_CD_RGB_DF2_F3.mp4
+C_3_9_35_BU_SYA_10-06_13-15-10_CC_RGB_DF2_F3__fire,fire,fire,uniform,cvat,female,middle age,112,155,82,179,,24,3.0,C_3_9_35_BU_SYA_10-06_13-15-10_CC_RGB_DF2_F3.mp4
+C_3_9_35_BU_SYB_10-04_12-46-25_CB_RGB_DF2_F3__fire,fire,fire,uniform,cvat,female,middle age,82,127,52,157,,24,3.0,C_3_9_35_BU_SYB_10-04_12-46-25_CB_RGB_DF2_F3.mp4
+C_3_9_36_BU_SMB_09-02_10-43-45_CD_RGB_DF2_F3__fire,fire,fire,uniform,cvat,female,middle age,109,153,79,179,,24,3.0,C_3_9_36_BU_SMB_09-02_10-43-45_CD_RGB_DF2_F3.mp4
+C_3_9_37_BU_DYA_08-02_16-49-35_CA_RGB_DF2_F2__fire,fire,fire,uniform,cvat,female,young people,78,100,48,130,,24,3.0,C_3_9_37_BU_DYA_08-02_16-49-35_CA_RGB_DF2_F2.mp4
+C_3_9_37_BU_DYA_08-02_16-49-35_CA_RGB_DF2_F2__normal_1,normal,normal,normal,cvat,female,young people,15,38,15,38,22,24,3.0,C_3_9_37_BU_DYA_08-02_16-49-35_CA_RGB_DF2_F2.mp4

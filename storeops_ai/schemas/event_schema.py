@@ -1,6 +1,20 @@
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
+
+
+def _portable_output_uri(value: str | None) -> str | None:
+    """공유 output 경로는 실행 OS가 달라도 컨테이너가 읽을 수 있게 정규화합니다."""
+    if not value:
+        return value
+    normalized = value.replace("\\", "/")
+    marker = "/output/"
+    if marker in normalized:
+        return "output/" + normalized.split(marker, 1)[1]
+    if normalized.startswith("output/"):
+        return normalized
+    return Path(normalized).as_posix()
 
 
 class EventCandidate(BaseModel):
@@ -10,10 +24,12 @@ class EventCandidate(BaseModel):
     카메라 끊김 사건: 영상과 점수는 비워 두고 disconnect 정보만 사용
     """
     event_id: str = Field(..., pattern=r"^E\d{3}$")
+    backend_event_id: Optional[str] = None
     camera_id: str
     event_type: str
     category: str
     confidence: Optional[float] = None
+    threshold: Optional[float] = None
     scores: Dict[str, float] = Field(default_factory=dict)
     track_ids: List[int] = Field(default_factory=list)
 
@@ -38,4 +54,10 @@ class EventCandidate(BaseModel):
     created_at: datetime = Field(default_factory=datetime.now)
 
     def to_dict(self):
-        return self.model_dump(mode="json")
+        data = self.model_dump(mode="json")
+        data["clip_path"] = _portable_output_uri(data.get("clip_path"))
+        data["event_video_path"] = _portable_output_uri(data.get("event_video_path"))
+        data["representative_images"] = [
+            _portable_output_uri(path) for path in data.get("representative_images", [])
+        ]
+        return data

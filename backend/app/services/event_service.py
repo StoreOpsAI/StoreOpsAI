@@ -3,7 +3,7 @@
 from datetime import datetime, timedelta, timezone
 
 from app.repositories.event_repository import EventRepository
-from app.schemas.event import Event, EventStatus, EventStatusHistory
+from app.schemas.event import Event, EventStatus, EventStatusHistory, EventVlm
 
 
 ALLOWED_STATUS_TRANSITIONS: dict[EventStatus, set[EventStatus]] = {
@@ -65,6 +65,14 @@ class EventService:
         if event is None:
             raise EventNotFoundError(event_id)
         return event
+
+    def update_vlm(self, event_id: str, vlm: EventVlm) -> Event:
+        """행동 사건에 한해 비동기 VLM 결과를 저장합니다."""
+
+        event = self.get_event(event_id)
+        if event.source != 'behavior_model':
+            raise ValueError('카메라 상태 사건에는 VLM 결과를 저장할 수 없습니다.')
+        return self.repository.update_vlm(event_id, vlm)
 
     def change_status(
         self,

@@ -7,6 +7,7 @@ from urllib.request import Request, urlopen
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 from pydantic import BaseModel, Field
+from typing import Literal
 
 from app.schemas.auth import AuthUser
 
@@ -18,6 +19,42 @@ class DraftRequest(BaseModel):
     target_date: str
     d1: float = Field(ge=0)
     d2: float = Field(ge=0)
+    on_hand: int = Field(ge=0)
+    incoming: int = Field(default=0, ge=0)
+    incoming_day: int = Field(default=1, ge=1, le=2)
+    arrival_after_days: int = Field(default=2, ge=0, le=2)
+
+
+class DailySaleRequest(BaseModel):
+    """상품별 일 판매량과 기록 상태입니다."""
+
+    date: str
+    sales: float | None = Field(default=None, ge=0)
+    status: Literal["observed", "closed", "stockout", "missing"] = "observed"
+
+
+class CalendarDayRequest(BaseModel):
+    """예측 대상일의 휴일·행사 정보입니다."""
+
+    date: str
+    is_holiday: int = Field(ge=0, le=1)
+    has_event: int = Field(default=0, ge=0, le=1)
+
+
+class DemandForecastRequest(BaseModel):
+    """XGBoost 수요 예측에 필요한 상품 이력과 달력입니다."""
+
+    product_id: str = Field(min_length=1, max_length=100)
+    as_of: str
+    history: list[DailySaleRequest] = Field(min_length=7, max_length=2000)
+    calendar: list[CalendarDayRequest] = Field(min_length=2, max_length=2000)
+    country: Literal["US", "KR"] = "US"
+
+
+class ForecastDraftRequest(BaseModel):
+    """XGBoost 이틀 예측과 점주 재고를 발주 추천으로 연결합니다."""
+
+    demand: DemandForecastRequest
     on_hand: int = Field(ge=0)
     incoming: int = Field(default=0, ge=0)
     incoming_day: int = Field(default=1, ge=1, le=2)
@@ -81,6 +118,20 @@ def create_demand_router(current_user) -> APIRouter:
     ):
         return _forward(
             "/api/orders/drafts",
+            "POST",
+            payload.model_dump(),
+            _demand_token(user.store_id),
+            idempotency_key,
+        )
+
+    @router.post("/orders/forecast-draft", status_code=status.HTTP_201_CREATED)
+    def create_forecast_draft(
+        payload: ForecastDraftRequest,
+        idempotency_key: str = Header(min_length=1, max_length=120),
+        user: AuthUser = Depends(current_user),
+    ):
+        return _forward(
+            "/api/orders/forecast-draft",
             "POST",
             payload.model_dump(),
             _demand_token(user.store_id),

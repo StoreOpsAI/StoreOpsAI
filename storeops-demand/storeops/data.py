@@ -3,6 +3,7 @@ import numpy as np
 import pandas as pd
 
 STATUSES = {'observed', 'closed', 'stockout', 'missing'}
+M5_STORES = ('CA_1', 'CA_2', 'CA_3', 'CA_4', 'TX_1', 'TX_2', 'TX_3', 'WI_1', 'WI_2', 'WI_3')
 
 def normalize_sales(frame):
     """Reindex daily records without inventing demand for missing/closed/stockout days."""
@@ -42,7 +43,7 @@ def normalize_sales(frame):
              'policy': 'No zero imputation. Closed/stockout/missing excluded from demand targets and history.'}
     return out, audit
 
-def load_m5(directory, store='CA_1', max_products=120, history_days=730, seed=42):
+def load_m5(directory, store='all', max_products=120, history_days=730, seed=42):
     directory = Path(directory)
     sales_file = directory / 'sales_train_evaluation.csv'
     if not sales_file.exists():
@@ -52,11 +53,17 @@ def load_m5(directory, store='CA_1', max_products=120, history_days=730, seed=42
     days = sorted((x for x in header if x.startswith('d_')), key=lambda x: int(x[2:]))
     days = days[-(history_days + 28):]
     catalog = pd.read_csv(sales_file, usecols=meta)
-    catalog = catalog[catalog.store_id == store]
+    stores = list(M5_STORES) if store == 'all' else [store]
+    unknown = set(stores) - set(catalog.store_id.unique())
+    if unknown:
+        raise ValueError(f'Unknown M5 stores: {sorted(unknown)}')
+    catalog = catalog[catalog.store_id.isin(stores)]
     if catalog.empty:
-        raise ValueError('Unknown M5 store')
-    if max_products > 0 and len(catalog) > max_products:
-        catalog = catalog.sample(n=max_products, random_state=seed)
+        raise ValueError('No M5 products found for selected stores')
+    product_ids = catalog.item_id.drop_duplicates()
+    if max_products > 0 and len(product_ids) > max_products:
+        product_ids = product_ids.sample(n=max_products, random_state=seed)
+        catalog = catalog[catalog.item_id.isin(product_ids)]
     chosen = set(catalog.id)
     chunks = []
     for c in pd.read_csv(sales_file, usecols=meta + days, chunksize=2000):
@@ -73,8 +80,11 @@ def load_m5(directory, store='CA_1', max_products=120, history_days=730, seed=42
     long = long.rename(columns={'item_id': 'product_id'})
     long['status'] = 'observed'
     panel, audit = normalize_sales(long[['store_id', 'product_id', 'date', 'sales', 'status']])
-    audit.update({'source': sales_file.name, 'store': store, 'products': len(wide),
-                  'sample_seed': seed, 'country': 'US', 'weather_used': False,
+    audit.update({'source': sales_file.name, 'store': store,
+                  'stores': sorted(wide.store_id.unique().tolist()),
+                  'store_count': int(wide.store_id.nunique()), 'products': len(wide),
+                  'product_types': int(wide.item_id.nunique()), 'sample_seed': seed,
+                  'country': 'US', 'weather_used': False,
                   'limitation': 'M5 has no daily closure/stockout reason. Observed zeros are not reclassified.',
                   'prices_used': False})
     return panel, cal[['date', 'is_holiday', 'has_event']], audit

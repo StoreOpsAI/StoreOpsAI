@@ -1,10 +1,16 @@
 # StoreOps 수요 예측·발주 초안
 
-Python으로 구현한 독립 실행 모듈입니다. M5로 XGBoost를 실제 학습하고 내일·모레 예측, 박스 단위 추천량, 점주 승인 초안과 승인 이력을 제공합니다. 승인해도 실제 주문 전송이나 재고 변경은 없습니다.
+<p align="center">
+  <img src="https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white" alt="Python 3.12">
+  <img src="https://img.shields.io/badge/FastAPI-API-009688?logo=fastapi&logoColor=white" alt="FastAPI">
+  <img src="https://img.shields.io/badge/XGBoost-Forecasting-EC6B23" alt="XGBoost">
+</p>
+
+Python 3.11 이상에서 실행하는 독립 서비스입니다. Compose 이미지는 Python 3.12를 사용합니다. M5 미국 매출 데이터로 XGBoost를 학습하고 내일·모레 예측, 박스 단위 추천량, 점주 승인 초안과 승인 이력을 제공합니다. 승인은 초안과 이력만 저장하며 실제 주문 전송이나 재고 변경은 하지 않습니다.
 
 ## 바로 실행
 
-현재 작업 환경에서는 이 폴더에서 `bash run_demo.sh`를 실행합니다. 기본 주소는 http://127.0.0.1:8765 입니다. 포트가 이미 사용 중이면 `PORT=8766 bash run_demo.sh`로 실행하세요. 화면에서 시연 토큰 `demo-owner-s01`을 입력합니다.
+Linux, WSL 또는 Git Bash에서는 이 폴더에서 `bash run_demo.sh`로 실행합니다. 기본 주소는 http://127.0.0.1:8765이며, 포트가 이미 사용 중이면 `PORT=8766 bash run_demo.sh`를 사용하세요. 데모 토큰은 `demo-owner-s01`입니다.
 
 새 환경(검증 환경 Python 3.12)에서는:
 
@@ -16,22 +22,42 @@ pip install --no-deps -e .
 bash run_demo.sh
 ```
 
+Windows PowerShell에서 단독 실행하려면 Python 3.12 가상환경을 준비하고 Uvicorn을 직접 실행합니다.
+
+```powershell
+py -3.12 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+pip install -r requirements-lock.txt
+pip install --no-deps -e .
+$env:STOREOPS_DEMO = "1"
+python -m uvicorn storeops.api:app --host 127.0.0.1 --port 8765
+```
+
+단독 실행 시 화면은 [http://127.0.0.1:8765](http://127.0.0.1:8765), OpenAPI는 [http://127.0.0.1:8765/docs](http://127.0.0.1:8765/docs)입니다.
+
 - **M5 예측으로 추천 생성**: 실제 학습된 모델로 공개 자료 예측 → 추천 생성.
 - **P001 명세서 모의 예시 생성**: 명세서의 16/12개 예측값을 사용한 합성·모의 시연. 모델 성능 자료가 아닙니다.
 - 수량을 6개 배수로 수정하고 승인하면 SQLite에 초안과 승인 이력이 남습니다.
 - OpenAPI: `/docs`. 기본 DB: `runtime/orders.sqlite3`.
 
-토큰은 로컬 시연용입니다. 서버는 127.0.0.1에만 바인딩합니다. 실제 서비스에 통합할 때 `STOREOPS_DEMO`를 해제하고 기존 로그인 시스템의 검증된 사용자/매장 정보를 연결해야 합니다. 기본값은 토큰이 없어 요청을 거부합니다. 테스트/통합용 토큰 매핑은 환경변수 `STOREOPS_TOKENS_JSON`에서 받을 수 있습니다. 클라이언트가 보낸 매장/승인자 값으로 권한을 결정하지 않습니다.
+## Docker Compose 연동
+
+루트 `docker-compose.yml`에서는 `demand` 서비스로 실행하며 포트 `8765`를 공개하고 `storeops-demand/runtime`을 SQLite 데이터 경로로 마운트합니다. 컨테이너는 `STOREOPS_DEMO=1`로 시작합니다. 백엔드 프록시를 사용할 때에는 루트 `.env`의 `STOREOPS_DEMAND_TOKENS_JSON`에 점주 매장 ID와 수요 서비스 토큰을 매핑해야 합니다. 전체 실행 설정은 [프로젝트 README](../README.md)를 참고하세요.
+
+`run_demo.sh`와 위 PowerShell 명령은 로컬 전용 데모 토큰을 사용하고 `127.0.0.1`에 바인딩합니다. Compose는 같은 `STOREOPS_DEMO=1` 모드를 사용하지만 포트를 호스트에 공개하므로 이 설정을 운영망에 노출하지 마세요. Compose의 데모 토큰은 `demo-owner-s01`이며 백엔드의 `STOREOPS_DEMAND_TOKENS_JSON`도 해당 값을 매장 토큰으로 매핑해야 합니다. 실제 서비스에서는 `STOREOPS_DEMO`를 해제하고 `STOREOPS_TOKENS_JSON`에 검증된 사용자·매장 토큰 매핑을 설정해야 합니다. 데모 모드가 아니고 토큰 맵도 없으면 인증 요청은 거부됩니다. 클라이언트가 보낸 매장·승인자 값으로 권한을 결정하지 않습니다.
 
 ## 재학습
 
 ```bash
 python -m storeops.train \
   --data-dir /home/user/Downloads/m5-forecasting-accuracy \
-  --store CA_1 --max-products 120 --history-days 730 --output artifacts
+  --store all --max-products 120 --history-days 730 --output artifacts
 ```
 
-`--max-products 0`이면 지정한 매장의 전 상품을 학습합니다. 이번 검증은 CA_1에서 시드 42로 뽑은 120개 상품입니다. 전 매장/전 상품 학습이나 M5 대회 전체 성능 검증으로 표현하면 안 됩니다. 실행 시간과 메모리를 제한하기 위해 한 매장 표본을 기본값으로 삼았습니다.
+기본 `--store all`은 M5의 미국 10개 매장 자료를 사용합니다. `--max-products 120`은 동일한 상품 표본 120종을 뽑아 각 매장의 일 판매량을 학습합니다. `--store CA_1`은 빠른 실험용 단일 매장 옵션이며 `--max-products 0`은 선택한 매장의 모든 상품을 학습합니다.
+
+현재 저장소의 `artifacts/` 모델과 평가 보고서는 이 기본값 변경 전에 CA_1 상품 120종으로 만든 결과입니다. 10개 매장 기준으로 운영하려면 M5 원자료를 지정해 위 명령을 실행하여 모델과 평가 산출물을 다시 생성해야 합니다.
 
 - 우선 `sales_train_evaluation.csv`를 사용하고, 없으면 validation 파일을 사용합니다. 두 파일을 합치지 않습니다.
 - `calendar.csv`의 날짜·미국 National 이벤트·행사 정보를 사용합니다. 휴일 변수는 M5 National 이벤트 기준이며 모든 미국 연방휴일의 완전한 목록을 뜻하지 않습니다.
@@ -46,14 +72,16 @@ python -m storeops.train \
 
 모든 `/api` 요청에 `Authorization: Bearer <token>`이 필요합니다.
 
-| 경로 | 용도 |
-|---|---|
-| POST `/api/forecasts` | 한 상품의 판매 이력과 미래 달력으로 d1/d2 예측 |
-| POST `/api/orders/forecast-draft` | 예측 후 추천 초안 생성 |
-| POST `/api/orders/drafts` | 외부 모듈 또는 모의 예측값으로 추천 초안 생성 |
-| GET `/api/orders/drafts` | 로그인 점주의 매장 초안 목록 |
-| GET `/api/orders/drafts/{id}` | 소속 매장의 초안 상세 |
-| POST `/api/orders/drafts/{id}/approve` | 수정 수량으로 승인 초안 저장 |
+| 경로                                   | 용도                                           |
+| -------------------------------------- | ---------------------------------------------- |
+| GET `/health`                          | 서비스 및 모델 준비 상태 확인                  |
+| POST `/api/forecasts`                  | 한 상품의 판매 이력과 미래 달력으로 d1/d2 예측 |
+| GET `/api/demo/forecast-input`         | 시연용 예측 입력 예제 조회                     |
+| POST `/api/orders/forecast-draft`      | 예측 후 추천 초안 생성                         |
+| POST `/api/orders/drafts`              | 외부 모듈 또는 모의 예측값으로 추천 초안 생성  |
+| GET `/api/orders/drafts`               | 로그인 점주의 매장 초안 목록                   |
+| GET `/api/orders/drafts/{id}`          | 소속 매장의 초안 상세                          |
+| POST `/api/orders/drafts/{id}/approve` | 수정 수량으로 승인 초안 저장                   |
 
 초안 생성에는 `Idempotency-Key` 헤더가 필수입니다. 동일 키·같은 본문 재요청은 기존 초안을 돌려주고, 같은 키에 다른 본문은 409로 거부합니다. 승인 본문은 `{"qty":18}`입니다. 승인자는 토큰에서 결정하고 시각은 한국 시간(+09:00)으로 저장합니다. 같은 승인 재시도는 이력을 중복 생성하지 않습니다. 다른 수량으로 재승인하려면 새 초안을 만듭니다.
 
@@ -87,3 +115,11 @@ python -m pytest -q
 - [M5 데이터 출처](https://www.kaggle.com/competitions/m5-forecasting-accuracy/data)
 
 실행 중에 원본 Kaggle CSV를 변경하지 않습니다. GPU, 외부 LLM, 유료 API는 필요하지 않습니다. SQLite는 SRS가 허용한 개발용 선택이며 PostgreSQL 연동/배포용 로그인은 팀 서버와 합칠 때 별도로 구현해야 합니다.
+
+## 기여
+
+변경 후 `python -m pytest -q`를 실행하고, 학습·예측 규칙을 바꾸면 검증 산출물과 설명도 함께 갱신합니다. 프로젝트 전체 작업·브랜치·커밋 규칙은 [루트 지침](../AGENTS.md)을 참고하세요.
+
+## 라이선스
+
+현재 저장소에는 별도 라이선스가 지정되어 있지 않습니다.

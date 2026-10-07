@@ -57,6 +57,12 @@ class EventRepository:
 
         return self._events.get(event_id)
 
+    def update_vlm(self, event_id: str, vlm: EventVlm) -> Event:
+        """메모리 사건의 비동기 VLM 결과를 갱신합니다."""
+
+        self._events[event_id] = self._events[event_id].model_copy(update={'vlm': vlm})
+        return self._events[event_id]
+
     def update_status(
         self,
         event_id: str,
@@ -223,7 +229,8 @@ class PostgresEventRepository:
                        FROM event_media frame
                        WHERE frame.event_id = e.event_id
                          AND frame.media_type IN ('frame_start', 'frame_middle', 'frame_end')
-                   ) AS representative_images
+                   ) AS representative_images,
+                   v.uncertain, v.owner_checks, v.error_message, v.model_name
             FROM events e
             LEFT JOIN vlm_results v ON v.event_id = e.event_id
             LEFT JOIN event_media m ON m.event_id = e.event_id AND m.media_type = 'clip'
@@ -241,6 +248,38 @@ class PostgresEventRepository:
 
         events = self._query_events(event_id)
         return events[0] if events else None
+
+    def update_vlm(self, event_id: str, vlm: EventVlm) -> Event:
+        """VLM 결과와 상태를 기존 결과 테이블에 저장합니다."""
+
+        import json
+
+        with connect() as connection, connection.cursor() as cursor:
+            cursor.execute(
+                """
+                UPDATE vlm_results
+                SET status = %s, model_name = %s, observed = %s, uncertain = %s, owner_checks = %s,
+                    error_message = %s, completed_at = CASE WHEN %s = 'completed' THEN now() ELSE NULL END,
+                    updated_at = now()
+                WHERE event_id = %s
+                """,
+                (
+                    vlm.status,
+                    vlm.model_name,
+                    vlm.summary,
+                    vlm.uncertain_points,
+                    json.dumps(vlm.owner_actions, ensure_ascii=False),
+                    vlm.error,
+                    vlm.status,
+                    event_id,
+                ),
+            )
+            if cursor.rowcount == 0:
+                raise KeyError(event_id)
+        event = self.get(event_id)
+        if event is None:
+            raise RuntimeError(f'VLM 결과 저장 후 사건을 찾을 수 없습니다: {event_id}')
+        return event
 
     def update_status(self, event_id: str, status: EventStatus, changed_by: str, changed_at: datetime) -> Event:
         """행 잠금으로 이전 상태를 읽은 뒤 상태를 갱신하고 이력을 함께 저장합니다."""
@@ -303,7 +342,8 @@ class PostgresEventRepository:
                            FROM event_media frame
                            WHERE frame.event_id = e.event_id
                              AND frame.media_type IN ('frame_start', 'frame_middle', 'frame_end')
-                       ) AS representative_images
+                       ) AS representative_images,
+                       v.uncertain, v.owner_checks, v.error_message, v.model_name
                 FROM events e
                 LEFT JOIN vlm_results v ON v.event_id = e.event_id
                 LEFT JOIN event_media m ON m.event_id = e.event_id AND m.media_type = 'clip'
@@ -318,7 +358,13 @@ class PostgresEventRepository:
     def _event_from_row(row: tuple) -> Event:
         """SQL 조회 결과 한 행을 Event 모델로 변환합니다."""
 
+        import json
+
         vlm_status = row[10] or 'pending'
+        try:
+            owner_actions = json.loads(row[18]) if row[18] else []
+        except (TypeError, json.JSONDecodeError):
+            owner_actions = [row[18]] if row[18] else []
         representative_images = [
             EventMediaReference.model_validate(media)
             for media in (row[16] or [])
@@ -329,6 +375,10 @@ class PostgresEventRepository:
             vlm=EventVlm(
                 status='completed' if vlm_status == 'completed' else vlm_status,
                 summary=row[11],
+                uncertain_points=row[17],
+                owner_actions=owner_actions,
+                error=row[19],
+                model_name=row[20],
             ),
             clip=EventClip(uri=row[12], length_sec=row[13]) if row[12] else None,
             status=row[14], data_label=row[15], representative_images=representative_images,
