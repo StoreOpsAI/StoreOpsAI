@@ -14,6 +14,7 @@ from typing import Any
 
 from .config import Config
 from .llm import LLMClient, LLMError
+from .question_text import normalize_question
 from .timeutil import date_hints, now_kst, KST
 from .tools import (
     TOOL_DEFS, TOOL_NAMES, PermissionDenied, ToolContext, ToolInputError, execute_tool, validate_input,
@@ -32,6 +33,7 @@ SYSTEM_PROMPT = """당신은 무인매장 점주의 질문에 답하는 Agent입
 {hints}
 
 [도구 고르는 법]
+- 질문의 일반적인 오타와 띄어쓰기 누락은 문맥으로 이해합니다. 뜻이 불명확하면 추측하지 말고 확인합니다. 사건 번호, 날짜, 수량은 임의로 고치지 않습니다.
 - 건수·기록 질문 → query_records (record_type: event=사건, order_draft=발주 초안). 쓰러짐처럼 종류를 지정하면 event_type 필터를 씁니다.
 - 규정·절차 질문 → search_manual (질문 문장을 그대로 question에 넣습니다)
 - 특정 사건 영상 → get_event_video. 사건 번호를 모르면 먼저 query_records로 사건 목록을 찾고, 그 결과를 보고 다음 도구를 고릅니다.
@@ -124,7 +126,7 @@ class Agent:
         messages: list[dict] = [
             {"role": "system", "content": SYSTEM_PROMPT.format(
                 now=now.astimezone(KST).strftime("%Y-%m-%d %H:%M (%A)"), store_id=store_id, hints=hints)},
-            {"role": "user", "content": question},
+            {"role": "user", "content": normalize_question(question)},
         ]
         executed: list[dict] = []  # 실제 실행한 도구 결과 (이름 포함)
         attempts = 0  # 반려된 호출도 포함한 호출 시도 수
