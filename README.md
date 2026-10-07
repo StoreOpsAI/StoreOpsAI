@@ -71,7 +71,7 @@ StoreOpsAI/
 | CCTV 탐지 서비스 | `storeops-ai`  | [http://localhost:8100](http://localhost:8100)           | 영상 분석 API                 |
 | PostgreSQL       | `postgres`     | `localhost:5433`                                         | 업무 데이터 영속 저장         |
 | Qwen VLM 서버    | `qwen-vllm`    | `http://localhost:8001`                                  | CCTV 대표 이미지 설명         |
-| 질문 Agent       | 원격 Docker     | `http://<QNA_PC_IP>:8002`                                | 질문 처리 및 규정 검색        |
+| 질문 Agent       | 원격 Docker    | `http://<QNA_PC_IP>:8002`                                | 질문 처리 및 규정 검색        |
 
 프런트엔드 개발 서버와 Nginx는 `/api`를 백엔드로, `/detector`를 메인 PC의 CCTV 탐지 서비스로 프록시합니다. 감시용 Qwen VLM은 메인 PC Compose에서 실행하지만 질문 Agent와 텍스트 LLM은 별도 PC에서 운영합니다. 브라우저는 백엔드만 호출하고 수요·질문 서비스 인증 토큰은 백엔드가 보관합니다. 원격 Agent 주소는 `STOREOPS_QNA_URL`, 공유 토큰은 `STOREOPS_QNA_TOKEN`으로 설정합니다.
 
@@ -110,12 +110,12 @@ nvidia-smi
 
 ### AI 기능별 환경
 
-| 기능                       | 버전 및 하드웨어                                                                                                  | 모델 준비 및 실행                                                                                                                                                              |
-| -------------------------- | ----------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| CCTV 행동 탐지             | Python 3.12 권장, PyTorch 2.0 이상, torchvision 0.15 이상. CPU 가능, NVIDIA GPU는 선택                            | YOLO 및 S3D 가중치가 저장소에 포함됩니다. 아래 CCTV 환경을 준비하고 `python -m tools.verify_i3d`로 확인합니다.                                                                 |
-| 수요 예측                  | Python 3.12, pandas 3.0.6, xgboost-cpu 3.4.1, scikit-learn 1.9.1. GPU 불필요                                      | 학습 모델이 포함되어 있습니다. 단독 실행은 [수요 서비스 README](storeops-demand/README.md), 전체 연동은 Docker Compose를 사용합니다.                                           |
-| 점주 질문 서비스           | 원격 Agent·LLM PC                                                                                                   | 질문 Agent와 텍스트 LLM은 이 저장소의 Compose에 포함되지 않습니다. 원격 서비스 주소와 공유 토큰을 `.env`에 설정합니다.                                                    |
-| CCTV 이미지 설명(Qwen VLM) | WSL2 Ubuntu 26.04.1, Python 3.14, PyTorch 2.13.0+cu130, CUDA 13.0, FlashInfer 0.6.18.post1, vLLM. NVIDIA GPU 필요 | Qwen3-VL-8B-Instruct-FP8 모델을 내려받습니다. RTX A4000 16GB에서 검증된 구성입니다. 전체 설치 절차는 [CCTV 탐지 README](storeops_ai/README.md)의 WSL2/vLLM 항목을 따릅니다.    |
+| 기능                       | 버전 및 하드웨어                                                                                                  | 모델 준비 및 실행                                                                                                                                                           |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| CCTV 행동 탐지             | Python 3.12 권장, PyTorch 2.0 이상, torchvision 0.15 이상. CPU 가능, NVIDIA GPU는 선택                            | YOLO 및 S3D 가중치가 저장소에 포함됩니다. 아래 CCTV 환경을 준비하고 `python -m tools.verify_i3d`로 확인합니다.                                                              |
+| 수요 예측                  | Python 3.12, pandas 3.0.6, xgboost-cpu 3.4.1, scikit-learn 1.9.1. GPU 불필요                                      | 학습 모델이 포함되어 있습니다. 단독 실행은 [수요 서비스 README](storeops-demand/README.md), 전체 연동은 Docker Compose를 사용합니다.                                        |
+| 점주 질문 서비스           | 원격 Agent·LLM PC                                                                                                 | 질문 Agent와 텍스트 LLM은 이 저장소의 Compose에 포함되지 않습니다. 원격 서비스 주소와 공유 토큰을 `.env`에 설정합니다.                                                      |
+| CCTV 이미지 설명(Qwen VLM) | WSL2 Ubuntu 26.04.1, Python 3.14, PyTorch 2.13.0+cu130, CUDA 13.0, FlashInfer 0.6.18.post1, vLLM. NVIDIA GPU 필요 | Qwen3-VL-8B-Instruct-FP8 모델을 내려받습니다. RTX A4000 16GB에서 검증된 구성입니다. 전체 설치 절차는 [CCTV 탐지 README](storeops_ai/README.md)의 WSL2/vLLM 항목을 따릅니다. |
 
 Compose의 Qwen VLM은 `vllm/vllm-openai` 컨테이너로 실행됩니다. 직접 WSL에서 실행하는 경우에는 CCTV 탐지 README의 검증된 Python 3.14 환경을 따르고, 다른 서비스의 Python 3.12 가상환경에 vLLM을 설치하지 마세요. 원격 질문 Agent의 GGUF와 매뉴얼 임베딩 모델은 해당 PC에서 별도로 준비해야 하며, Compose의 Qwen VLM 가중치는 첫 기동 시 Docker 볼륨에 내려받습니다.
 

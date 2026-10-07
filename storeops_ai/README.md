@@ -926,14 +926,14 @@ bash storeops_ai/tools/start_qwen_vllm.sh
 
 ### 스크립트 설정값
 
-| 항목 | 값 | 설명 |
-| --- | --- | --- |
-| `QWEN_VLM_MODEL` | `Qwen/Qwen3-VL-8B-Instruct-FP8` | 모델 ID 환경변수 |
-| `QWEN_VLLM_PORT` | `8001` | 공개할 API 포트 환경변수 |
-| `--host` | `0.0.0.0` | 스크립트에서 고정 |
-| `--limit-mm-per-prompt` | `{"image":3,"video":0}` | 요청당 이미지 최대 3장, 비디오 미사용 |
-| `--gpu-memory-utilization` | `0.90` | 스크립트에서 고정 |
-| `--max-model-len` | `4096` | 스크립트에서 고정 |
+| 항목                       | 값                              | 설명                                  |
+| -------------------------- | ------------------------------- | ------------------------------------- |
+| `QWEN_VLM_MODEL`           | `Qwen/Qwen3-VL-8B-Instruct-FP8` | 모델 ID 환경변수                      |
+| `QWEN_VLLM_PORT`           | `8001`                          | 공개할 API 포트 환경변수              |
+| `--host`                   | `0.0.0.0`                       | 스크립트에서 고정                     |
+| `--limit-mm-per-prompt`    | `{"image":3,"video":0}`         | 요청당 이미지 최대 3장, 비디오 미사용 |
+| `--gpu-memory-utilization` | `0.90`                          | 스크립트에서 고정                     |
+| `--max-model-len`          | `4096`                          | 스크립트에서 고정                     |
 
 # 14. 서버 정상 실행 확인
 
