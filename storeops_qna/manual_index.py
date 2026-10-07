@@ -10,6 +10,7 @@ import numpy as np
 
 from .db import transaction
 from .embedding import Embedder
+from .question_text import normalize_question
 
 
 @dataclass
@@ -140,6 +141,7 @@ def search_chunks(
     if not rows:
         return []
     mat = np.vstack([np.frombuffer(r["embedding"], dtype=np.float32) for r in rows])
+    question = normalize_question(question)
     q = embedder.embed([question])[0]
     scores = mat @ q
     terms = _query_terms(question)

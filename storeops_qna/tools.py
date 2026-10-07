@@ -361,8 +361,10 @@ def _check_composed(obj: dict | None, hit_ids: set[str]) -> str | None:
 
 
 def _search_manual(args: dict, ctx: ToolContext) -> dict[str, Any]:
+    from .question_text import normalize_question
+    question = normalize_question(args["question"])
     mcfg = ctx.cfg.manual
-    hits: list[Hit] = search_chunks(ctx.conn, ctx.embedder, args["question"], mcfg.top_k,
+    hits: list[Hit] = search_chunks(ctx.conn, ctx.embedder, question, mcfg.top_k,
                                     mcfg.similarity_threshold, args.get("doc_scope"), mcfg.keyword_threshold)
     insufficient = {
         "status": "insufficient_evidence", "answer": "규정 문서에서 근거를 찾지 못해 답할 수 없습니다. (근거 부족)",
@@ -377,7 +379,7 @@ def _search_manual(args: dict, ctx: ToolContext) -> dict[str, Any]:
     pieces = "\n\n".join(f"[{h.chunk_id}] ({h.doc_name} {h.doc_version}, {h.section})\n{h.text}" for h in hits)
     messages = [
         {"role": "system", "content": _COMPOSE_SYSTEM},
-        {"role": "user", "content": f"질문: {args['question']}\n\n[조각]\n{pieces}"},
+        {"role": "user", "content": f"질문: {question}\n\n[조각]\n{pieces}"},
     ]
     obj, problem = None, "응답 없음"
     for _ in range(2):  # 형식이 틀리면 한 번만 다시 요청
