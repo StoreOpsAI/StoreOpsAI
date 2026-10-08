@@ -17,6 +17,7 @@ from app.routers.auth import create_auth_router, create_current_user_dependency
 from app.routers.events import create_events_router
 from app.routers.demand import create_demand_router
 from app.routers.internal_events import create_internal_events_router
+from app.routers.internal_qna import create_internal_qna_router
 from app.routers.questions import create_questions_router
 from app.services.auth_service import AuthService
 from app.services.event_service import EventService
@@ -51,6 +52,7 @@ app.include_router(create_events_router(event_service, current_user))
 app.include_router(create_auth_router(auth_service))
 app.include_router(create_demand_router(current_user))
 app.include_router(create_internal_events_router(event_service))
+app.include_router(create_internal_qna_router(event_service))
 app.include_router(create_questions_router(event_service, current_user))
 
 

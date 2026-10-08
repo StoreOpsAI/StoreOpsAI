@@ -8,9 +8,10 @@
 
 매장 영상에서 사람을 추적하고 장면 단위 행동 점수를 계산해 이벤트 후보를
 저장하는 FastAPI 서비스입니다. 별도 Path 2 런타임은 RTSP/HTTP 카메라의
-프레임 수신 시각만 감시합니다. 운영 카테고리는 정상, 쓰러짐, 싸움, 파손,
-쓰레기 투기이며, 학습 체크포인트의 라벨 전체를 서비스 카테고리로 노출하지는
-않습니다.
+프레임 수신 시각만 감시합니다. 운영 카테고리(v1.0)는 정상, 쓰러짐,
+쓰레기 투기, 절도이며, 학습하지 않은 싸움·파손·방화는 서비스 카테고리로
+노출하지 않습니다. 행동분류는 화면 전체(A)와 사람 크롭(C1) S3D를 동적
+결합해 사용합니다(자세한 내용은 [INTEGRATION_V1.0.md](INTEGRATION_V1.0.md)).
 
 ## 목차
 
@@ -65,7 +66,7 @@ FastAPI 시작 시 Path 2 감시 스케줄러와 `input/` 폴더 감시기가 �
 - FR-EVT-02 ByteTrack 추적 번호
 - FR-EVT-03 화면 전체 입력, 추적 ID는 사건 연계용
 - FR-EVT-04 4초 분류 창, 2초 간격(50% 겹침), 분류 버퍼 3fps
-- FR-EVT-05 정상·쓰러짐·싸움·파손·쓰레기 투기 5개 서비스 점수
+- FR-EVT-05 정상·쓰러짐·쓰레기 투기·절도 4개 서비스 점수(v1.0, A+C1 동적 결합)
 - FR-EVT-06 카테고리별 임계값 초과 시 사건 후보 발급
 - FR-EVT-07 VLM과 독립된 1차 알림
 - FR-EVT-08 10초 사건 영상과 카메라 번호
@@ -80,30 +81,35 @@ FastAPI 시작 시 Path 2 감시 스케줄러와 `input/` 폴더 감시기가 �
 
 ## 행동분류 모델 연결 (FR-EVT-05)
 
-기본 체크포인트는 `training/runs/mc_stage2/best.pt`이며 torchvision S3D
-모델입니다. 가중치 지정은 CLI의 `--i3d-weight` 또는 `I3D_WEIGHT_PATH`를
-사용합니다. 체크포인트 라벨을 서비스 카테고리로 다음처럼 변환합니다.
+기본 체크포인트는 torchvision S3D 두 개입니다. 화면 전체 모델
+`training/runs/ours_a_final/best.pt`(A)와 사람 크롭 모델
+`training/runs/ours_c1_final/best.pt`(C1)를 `training/runs/ours_stack/fusion.json`의
+동적 결합 `z = (a|a| + b|b|) / (|a| + |b|)`(학습 파라미터 없음)으로 합칩니다.
+임계값도 이 파일(날짜 5-fold OOF로 정한 값)에서 읽습니다. 가중치 지정은
+CLI의 `--i3d-weight` 또는 `I3D_WEIGHT_PATH`를 사용하며, 기본 경로가 아닌
+가중치를 지정하면 A 단독으로 동작합니다. 체크포인트 라벨을 서비스
+카테고리로 다음처럼 변환합니다.
 
 | 학습 라벨 | 서비스 점수 |
 | --------- | ----------- |
 | `normal`  | 정상        |
 | `fall`    | 쓰러짐      |
-| `broken`  | 파손        |
 | `abandon` | 쓰레기 투기 |
-| `fight`   | 싸움        |
+| `theft`   | 절도        |
 
-현재 기본 체크포인트에는 `fight` 라벨이 없으므로 싸움 점수는 `0.0`입니다.
-체크포인트에 포함된 `fire`, `theft` 라벨은 현재 서비스 카테고리가 아니므로
-응답에서 제외됩니다. 모델 입력은 24프레임을 균일 샘플링해 224×224로
-리사이즈하고 Kinetics 정규화를 적용합니다.
+싸움·파손·방화는 학습하지 않아 서비스 점수에서 제외합니다. 모델 입력은
+24프레임을 균일 샘플링해 224×224로 리사이즈하고 Kinetics 정규화를
+적용합니다.
 
 **입력 방식**
 
 운영 모드는 `ACTION_INPUT_MODE=full`로 고정했습니다. 화면 전체를 3fps로
 버퍼링해 **4초 창을 2초 간격(50% overlap)** 으로 S3D에 전달합니다.
-사람이 한 명도 추적되지 않은 창은 분류하지 않으며, 사건의
-`track_ids`에는 해당 창에서 나타난 ID를 기록합니다. 사람 crop은
-증거용으로만 남기고 분류 입력에는 사용하지 않습니다.
+사람 유무와 관계없이 모든 창을 분류하며(쓰러져 추적이 끊긴 사람, 사람이
+떠난 직후의 유기를 놓치지 않기 위해), 사건의 `track_ids`에는 해당 창에서
+나타난 ID를 기록합니다. C1 입력은 창 안 모든 사람 박스의 합집합을 넓혀
+원본 프레임에서 자른 크롭이며(`CROP_LARGEST_PERSON=1`이면 가장 큰 한 명),
+사람이 없으면 화면 전체를 씁니다.
 
 같은 카테고리 사건은 `EVENT_COOLDOWN_SEC`(30초) 동안 다시 발급하지
 않습니다. 영상이 `ACTION_WINDOW_SEC`보다 짧으면 영상 전체를 1회
@@ -183,7 +189,7 @@ pip install -r requirements.txt
 
 `EVENT_THRESHOLD` `0.60` 카테고리별 임계값을 따로 지정하지 않았을 때 적용할 기본값
 
-`FALL_EVENT_THRESHOLD` / `FIGHT_EVENT_THRESHOLD` / `BROKEN_EVENT_THRESHOLD` / `LITTERING_EVENT_THRESHOLD` `0.60` 쓰러짐·싸움·파손·쓰레기 투기별 사건 기준
+`FALL_EVENT_THRESHOLD` / `LITTERING_EVENT_THRESHOLD` / `THEFT_EVENT_THRESHOLD` `fusion.json` 값 쓰러짐·쓰레기 투기·절도별 사건 기준(확률 환산값). 환경변수로 덮어쓸 수 있습니다
 
 `EVENT_VIDEO_SEC` `10.0` 사건 영상 길이(초)
 (FR-EVT-08)
@@ -227,8 +233,21 @@ pip install -r requirements.txt
 
 `VLM_RESULT_WEBHOOK_URL` 비어 있음 비동기 VLM 결과 콜백 주소
 
-`I3D_WEIGHT_PATH` `training/runs/mc_stage2/best.pt` 행동분류 체크포인트
-(FR-EVT-05)
+`I3D_WEIGHT_PATH` `training/runs/ours_a_final/best.pt` 행동분류 체크포인트(A,
+화면 전체)(FR-EVT-05)
+
+`I3D_CROP_WEIGHT_PATH` `training/runs/ours_c1_final/best.pt` 사람 크롭(C1) 체크포인트
+
+`I3D_STACK_PATH` `training/runs/ours_stack/fusion.json` A+C1 동적 결합과 임계값
+
+`I3D_USE_STACK` `1` 0이면 A 단독. C1·결합 파일이 없어도 A 단독으로 동작
+
+`CROP_LARGEST_PERSON` `0` 1이면 C1 크롭을 가장 큰 사람 한 명으로 만듦
+
+`VLM_ENABLED` `1` 0이면 VLM을 쓰지 않음(`QWEN_VLM_BASE_URL`을 비움)
+
+`CONFIRMATIONS_REQUIRED` `1` 실시간 웹캠 모드에서 같은 비정상 클래스를 몇 번 연속
+확인해야 사건으로 확정할지(이전 기본값 3)
 
 `I3D_DEVICE` `auto` `auto` / `cpu` / `cuda`
 
@@ -335,7 +354,7 @@ CLI로 영상 파일 하나를 직접 분석합니다. 프로젝트 루트에서
 `--camera-id` ❌ (기본 `CAM001`) 카메라 식별자
 
 `--i3d-weight` ❌ I3D 가중치 경로 (생략하면
-`training/runs/mc_stage2/best.pt`)
+`training/runs/ours_a_final/best.pt`)
 
 `--debug` ❌ 디버그 로그 출력
 
@@ -495,7 +514,7 @@ Compose 실행과 백엔드 연동은 [루트 README](../README.md)를 참고하
 
 ---
 
-`I3D 가중치 없음 ... 행동분류 비활성 상태` `training/runs/mc_stage2/best.pt`
+`I3D 가중치 없음 ... 행동분류 비활성 상태` `training/runs/ours_a_final/best.pt`
 경고 가 없거나 `I3D_WEIGHT_PATH` 가
 틀렸습니다.
 
@@ -541,17 +560,16 @@ Path2 끊김 사건이 계속 재생성됨 `/path2/frame`을 호출해 정상 �
 
 ## FR-EVT Path 1 실시간 웹캠 테스트
 
-학습된 `training/runs/mc_stage2/best.pt`를 실제 Path 1에 연결하기 전에,
+학습된 `training/runs/ours_a_final/best.pt`(+ C1·결합)를 실제 Path 1에 연결하기 전에,
 먼저 S3D 행동분류 모델 자체가 웹캠 영상에서 정상적으로 반응하는지 확인할
 수 있습니다.
 
 이 프로젝트에는 학습 완료된 S3D 행동분류 모델이 포함되어 있습니다.
 
-기본 모델: `training/runs/mc_stage2/best.pt`
+기본 모델: `training/runs/ours_a_final/best.pt`(A) + `ours_c1_final/best.pt`(C1) + `ours_stack/fusion.json`
 
-운영 화면에 표시하는 점수는 `NORMAL`, `FALL`, `BROKEN`, `LITTERING`,
-`FIGHT`입니다. 기본 체크포인트에는 싸움 학습 라벨이 없어 `FIGHT`는
-0.0으로 표시됩니다. `FIRE`와 `THEFT`는 현재 서비스 점수에서 제외됩니다.
+운영 화면에 표시하는 점수는 `NORMAL`, `FALL`, `LITTERING`, `THEFT`입니다.
+싸움·파손·방화는 학습하지 않아 표시하지 않습니다.
 
 ## 웹캠 실행
 
@@ -561,7 +579,7 @@ cd storeops_ai
 python webcam_i3d.py
 ```
 
-웹캠 번호가 0이 아니면 `--camera 1`을 지정합니다. 기본 입력 창은 8초이며,
+웹캠 번호가 0이 아니면 `--camera 1`을 지정합니다. 기본 입력 창은 학습과 같은 4초이며,
 2초마다 추론합니다. CPU가 느리면 `--interval-sec 4`처럼 간격을 늘리거나
 `--window-sec 10`으로 입력 창을 조정할 수 있습니다. 이 도구는 모델 점검 전용이며
 이벤트를 발급하거나 백엔드로 전송하지 않습니다.

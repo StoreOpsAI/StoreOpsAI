@@ -1,0 +1,12 @@
+# VLM 서버(Qwen)를 아예 띄우지 않기 위한 덮어쓰기 파일입니다.
+# 사용: docker compose -f docker-compose.yml -f docker-compose.novlm.yml up -d --build
+# - qwen-vllm은 "vlm" 프로필로 옮겨 기본 실행에서 빠집니다(필요하면 --profile vlm).
+# - 백엔드의 QWEN_VLM_BASE_URL을 비워, 점주가 지난 사건을 물어도 사진 해석 없이
+#   "사진 해석 서버를 사용할 수 없습니다" 안내와 사건 목록·영상 위치만 답하게 합니다.
+# 사건이 난 순간에는 VLM을 부르지 않으므로(VLM_ON_EVENT=0 기본) 경보와 영상 제공에는 영향이 없습니다.
+services:
+  qwen-vllm:
+    profiles: ["vlm"]
+  backend:
+    environment:
+      QWEN_VLM_BASE_URL: ""

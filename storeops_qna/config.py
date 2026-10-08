@@ -60,6 +60,8 @@ class Config:
     embedding: EmbeddingConfig = field(default_factory=EmbeddingConfig)
     db: DBConfig = field(default_factory=DBConfig)
     owners: dict[str, str] = field(default_factory=lambda: {"owner-01": "S01"})
+    # 사건 사진 해석(describe_events)을 맡길 백엔드 주소. 비어 있으면 해석 없이 사건 정보만 안내한다.
+    backend_url: str = ""
 
     def resolve(self, p: str) -> Path:
         path = Path(p)
@@ -90,6 +92,8 @@ def load_config(path: str | os.PathLike | None = None) -> Config:
         cfg.llm.base_url = llm_url
     if db_path := os.getenv("STOREOPS_QNA_DB_PATH"):
         cfg.db.path = db_path
+    if backend_url := os.getenv("STOREOPS_BACKEND_URL"):
+        cfg.backend_url = backend_url.rstrip("/")
     if raw.get("owners"):
         cfg.owners = {str(k): str(v) for k, v in raw["owners"].items()}
     return cfg

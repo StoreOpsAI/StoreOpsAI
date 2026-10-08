@@ -9,8 +9,8 @@ training/runs/*/best.pt (training/scripts/train_i3d.py 로 학습한 체크포�
   3) BGR -> RGB, /255, Kinetics-400 mean/std 정규화
   4) (C, T, H, W) 텐서, 배치 차원 추가
 
-현재 체크포인트는 abandon/broken/fall/fire/normal/theft 6종으로 학습되었으며 싸움 클래스는 포함되지 않았습니다.
-운영 점수는 요구된 5개 카테고리만 반환하고, 미학습 싸움 점수는 0.0으로 채웁니다.
+현재 체크포인트는 normal/fall/abandon/theft 4종으로 학습되었습니다(싸움·파손·방화는 학습하지 않아 서비스에서 뺐다).
+운영 점수는 config.CATEGORIES(4개)만 반환합니다.
 """
 
 from __future__ import annotations
@@ -24,7 +24,9 @@ import numpy as np
 
 from config.config import (
     CATEGORIES, CATEGORY_THRESHOLDS, I3D_WEIGHT_PATH, I3D_DEVICE, MODEL_LABEL_TO_CATEGORY,
+    I3D_CROP_WEIGHT_PATH, I3D_STACK_PATH, I3D_USE_STACK,
 )
+from models.stack_head import StackHead
 
 logger = logging.getLogger("storeops_ai")
 
@@ -119,10 +121,16 @@ class I3DClassifier:
         self.meta: dict = {}
         self._device = "cpu"
         self._index_to_category: Dict[int, str] = {}
+        self.crop_model = None   # 사람 크롭(C1) 모델과 A+C1 결합(스택). 없으면 A 단독
+        self.stack: Optional[StackHead] = None
         self.missing_categories: List[str] = [c for c in CATEGORIES if c != "정상"]
 
         if path.is_file():
             self._load(path)
+            if I3D_USE_STACK and path.resolve() == Path(I3D_WEIGHT_PATH).resolve():   # 기본(최종 A) 가중치일 때만 C1·스택을 함께 쓴다. 다른 가중치를 지정하면 그 모델 단독
+                self.crop_model = _load_checkpoint(Path(I3D_CROP_WEIGHT_PATH), self._device)["model"]
+                self.stack = StackHead(I3D_STACK_PATH)
+                logger.info("A+C1 스택 결합 사용: %s / %s", I3D_CROP_WEIGHT_PATH, I3D_STACK_PATH)
         elif explicit:
             raise FileNotFoundError(f"I3D 가중치 파일을 찾을 수 없습니다: {path}")
         else:
@@ -147,6 +155,10 @@ class I3DClassifier:
     def is_ready(self) -> bool:
         return self.model is not None
 
+    @property
+    def has_stack(self) -> bool:
+        return self.crop_model is not None and self.stack is not None
+
     # I3D에서 출력되는 5개 서비스 클래스의 점수가
     # 올바른 형식인지 확인하는 함수
     @classmethod
@@ -156,7 +168,7 @@ class I3DClassifier:
         if not isinstance(scores, dict):
             raise ValueError("I3D scores는 dict여야 합니다.")
 
-        # 정상, 쓰러짐, 싸움, 파손, 쓰레기 투기 중
+        # config.CATEGORIES(정상, 쓰러짐, 쓰레기 투기, 절도) 중
         # 빠진 클래스가 있는지 확인
         missing = [c for c in CATEGORIES if c not in scores]
 
@@ -244,6 +256,21 @@ class I3DClassifier:
             if category in scores:
                 scores[category] = float(min(max(p, 0.0), 1.0))
 
+        return self.decide(scores)
+
+    def _logits(self, model, clip_frames: List[np.ndarray]) -> np.ndarray:
+        import torch
+        with torch.inference_mode():
+            return model(self._preprocess(clip_frames).to(self._device)).float()[0].cpu().numpy().astype(np.float64)
+
+    def predict_pair(self, full_frames: List[np.ndarray], crop_frames: List[np.ndarray]):
+        """A(화면 전체) + C1(사람 크롭) 로짓을 스택으로 결합해 쓰러짐·쓰레기 투기·절도 점수를 만든다."""
+        if not self.has_stack:
+            raise I3DNotConfiguredError("A+C1 스택이 로드되지 않았습니다.")
+        probs = self.stack.probs(self._logits(self.model, full_frames), self._logits(self.crop_model, crop_frames))
+        scores = {c: 0.0 for c in CATEGORIES}
+        scores.update({c: min(max(p, 0.0), 1.0) for c, p in probs.items() if c in scores})
+        scores["정상"] = max(0.0, 1.0 - max(probs.values()))
         return self.decide(scores)
 
     # 모델이 반환한 5개 점수를

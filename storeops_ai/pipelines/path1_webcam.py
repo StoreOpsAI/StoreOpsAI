@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import sys
 import time
 from collections import defaultdict, deque
@@ -18,6 +19,8 @@ import cv2
 
 from config.config import (
     CATEGORY_THRESHOLDS,
+    CROP_LARGEST_PERSON,
+    VLM_ON_EVENT,
     CLIP_MAX_SEC,
     CLIP_MIN_SEC,
     CLIP_DIR,
@@ -39,6 +42,7 @@ from config.config import (
     PERSON_CLASS_ID,
 )
 from models.i3d_classifier import I3DClassifier
+from models.stack_head import largest_person_boxes, union_crop
 from models.vlm_analyzer import VLMAnalyzer
 from models.yolo_detector import YOLODetector
 from services.realtime import event_hub
@@ -53,9 +57,9 @@ logger = logging.getLogger("storeops_ai")
 # ---------------------------------------------------------------------------
 # 웹캠에서 S3D가 한 번 잘못 분류되는 것을 바로 이벤트로 만들지 않기 위한 설정
 # ---------------------------------------------------------------------------
-# 기본값: 같은 비정상 클래스가 3회 연속 임계값 이상이어야 이벤트 후보로 확정.
-# 추론 간격이 5초라면 약 15초 동안 같은 판단이 유지되어야 한다.
-CONFIRMATIONS_REQUIRED = 3
+# 기본값 1 = 임계값을 넘으면 바로 이벤트 후보로 확정한다(즉시 알림, 사용자 결정 2026-10-07).
+# 연속 확인이 필요하면 환경변수 CONFIRMATIONS_REQUIRED=3처럼 올린다(이전 기본값은 3).
+CONFIRMATIONS_REQUIRED = int(os.getenv("CONFIRMATIONS_REQUIRED", "1"))
 
 # 연속 확인 사이의 최대 허용 시간. 웹캠 프레임 드롭 등으로 한 번 늦어져도
 # 바로 streak를 0으로 만들지 않도록 한다.
@@ -115,6 +119,8 @@ class Path1Webcam:
         self.scene_frames = deque(
             maxlen=max(24, int(I3D_WINDOW_SEC * I3D_BUFFER_FPS) + 10)
         )
+        # C1(사람 크롭) 입력용: 표본 프레임마다 (frame_no, [(track_id, 박스)]). scene_frames와 같은 길이로 유지한다.
+        self.window_boxes = deque(maxlen=self.scene_frames.maxlen)
 
         # 이벤트 영상 저장용 최근 실제 프레임. 최대 10초 정도만 보관한다.
         self.event_frames = deque(
@@ -314,18 +320,23 @@ class Path1Webcam:
                 print(f"[알림 생략] {exc}")
         self.events.save(event)
         event_hub.publish("event.created", event.to_dict())
-        try:
-            future = self.vlm.analyze_async(
-                images,
-                {"event_id": event.event_id, "camera_id": event.camera_id},
-            )
-            future.add_done_callback(
-                lambda done, event=event: self._persist_vlm_result(event, done)
-            )
-        except Exception as exc:
-            logger.exception("[VLM START FAILED] event=%s", event_id)
-            updated = self.events.update(event_id, vlm={"status": "FAILED", "error": str(exc)})
+        if not VLM_ON_EVENT:   # 사건 시점에는 VLM을 부르지 않는다. 백엔드 화면에는 "해당 없음"으로 표시한다.
+            updated = self.events.update(event_id, vlm={"status": "not_applicable"})
+            send_vlm_result(event, "not_applicable")
             event_hub.publish("event.updated", updated)
+        else:
+            try:
+                future = self.vlm.analyze_async(
+                    images,
+                    {"event_id": event.event_id, "camera_id": event.camera_id},
+                )
+                future.add_done_callback(
+                    lambda done, event=event: self._persist_vlm_result(event, done)
+                )
+            except Exception as exc:
+                logger.exception("[VLM START FAILED] event=%s", event_id)
+                updated = self.events.update(event_id, vlm={"status": "FAILED", "error": str(exc)})
+                event_hub.publish("event.updated", updated)
         self.events_issued.append(event)
 
         print(f"\n[EVENT] {event_id} | {category} | {confidence:.3f} | Track={track_ids}")
@@ -465,9 +476,20 @@ class Path1Webcam:
         )
         return out
 
-    def _run_s3d(self, frames):
-        """S3D 예외가 전체 웹캠 프로그램을 죽이지 않도록 한 곳에서 처리."""
+    def _crop_input(self, scene_pairs):
+        """C1 입력: 창 안 사람 박스의 합집합(CROP_LARGEST_PERSON=1이면 가장 큰 사람)을 원본 프레임에서 잘라 모델 입력 크기로 줄인다.
+        사람이 없으면 화면 전체가 된다. 학습 때와 같은 규칙이다."""
+        frame_nos = {fn for fn, _ in scene_pairs}
+        per_frame = [boxes for fn, boxes in self.window_boxes if fn in frame_nos]
+        boxes = largest_person_boxes(per_frame) if CROP_LARGEST_PERSON else [b for boxes in per_frame for _, b in boxes]
+        size = self.i3d.input_size
+        return [cv2.resize(union_crop(f, boxes), (size, size), interpolation=cv2.INTER_LINEAR) for _, f in scene_pairs]
+
+    def _run_s3d(self, frames, crop_frames=None):
+        """S3D 예외가 전체 웹캠 프로그램을 죽이지 않도록 한 곳에서 처리. A+C1 결합이 있으면 크롭 입력도 함께 쓴다."""
         try:
+            if crop_frames is not None and self.i3d.has_stack:
+                return self.i3d.predict_pair(frames, crop_frames)
             return self.i3d.predict(frames)
         except Exception as exc:
             print(f"[S3D 오류] {type(exc).__name__}: {exc}")
@@ -548,20 +570,21 @@ class Path1Webcam:
             # S3D용 장면 프레임은 3fps 등 I3D_BUFFER_FPS에 맞춰 샘플링한다.
             if frame_no % sample_every == 0:
                 self.scene_frames.append((frame_no, frame.copy()))
+                self.window_boxes.append((frame_no, [(d[0], d[1:5]) for d in detections]))
 
             # ------------------------------------------------------------------
             # full 모드: 학습 때와 동일하게 화면 전체를 S3D에 넣는다.
-            # 단, 사람 Track이 실제로 존재할 때만 추론한다.
+            # 사람 유무로 건너뛰지 않는다: 쓰러져 추적이 끊긴 사람(전도)과 사람이 떠난 직후(유기)가 바로 판정 구간이다.
             # ------------------------------------------------------------------
             if self.mode == "full" and frame_no >= next_scene_infer:
                 next_scene_infer = frame_no + infer_every
 
-                if len(self.scene_frames) >= 24 and detections:
+                if len(self.scene_frames) >= 24:
                     scene_pairs = list(self.scene_frames)[-window_frames:]
                     frames = [f for _, f in scene_pairs]
                     tids = sorted({d[0] for d in detections})
 
-                    result_s3d = self._run_s3d(frames)
+                    result_s3d = self._run_s3d(frames, self._crop_input(scene_pairs) if self.i3d.has_stack else None)
                     if result_s3d is not None:
                         category, confidence, scores = result_s3d
                         current_time = frame_no / fps

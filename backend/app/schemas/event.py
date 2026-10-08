@@ -30,7 +30,7 @@ class EventVlm(BaseModel):
 class EventVlmUpdateRequest(BaseModel):
     """비동기 VLM 작업 결과를 탐지 서비스에서 수신합니다."""
 
-    status: Literal['completed', 'failed']
+    status: Literal['completed', 'failed', 'not_applicable']
     observation: str | None = Field(default=None, max_length=4000)
     uncertain_points: str | None = Field(default=None, max_length=4000)
     owner_actions: list[str] = Field(default_factory=list, max_length=3)

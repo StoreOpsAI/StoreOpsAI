@@ -2,6 +2,8 @@ from __future__ import annotations
 import argparse
 import cv2
 import json
+import math
+import os
 from collections import defaultdict, deque
 from pathlib import Path
 from typing import Dict, Optional
@@ -11,11 +13,12 @@ import logging
 from config.config import (
     YOLO_MODEL_PATH, TRACKER_CONFIG, CONF_THRESHOLD, PERSON_CLASS_ID,
     CLIP_MIN_SEC, CLIP_MAX_SEC, EVENT_VIDEO_SEC, EVENT_VIDEO_PRE_SEC, EVENT_VIDEO_POST_SEC, CATEGORY_THRESHOLDS,
-    EXPANDED_CROP_CATEGORIES, EXPAND_X, EXPAND_Y, EVENT_DIR, CLIP_DIR, IMAGE_DIR,
+    EXPANDED_CROP_CATEGORIES, CROP_LARGEST_PERSON, EXPAND_X, EXPAND_Y, EVENT_DIR, CLIP_DIR, IMAGE_DIR, VLM_ON_EVENT,
     I3D_INPUT_MODE, I3D_WINDOW_SEC, I3D_INFER_INTERVAL_SEC, I3D_BUFFER_FPS, EVENT_COOLDOWN_SEC,
 )
 from models.yolo_detector import YOLODetector
 from models.i3d_classifier import I3DClassifier
+from models.stack_head import largest_person_boxes, union_crop
 from models.vlm_analyzer import VLMAnalyzer
 from services.realtime import event_hub
 from schemas.event_schema import EventCandidate
@@ -23,12 +26,12 @@ from utils.clip_manager import save_frames, save_representative_images
 from utils.event_manager import EventManager
 from utils.notification import send_first_alert, send_vlm_result
 
+RISK_LEVELS = os.getenv("RISK_LEVELS", "0") == "1"   # 1이면 사건에 위험도 단계(주의/경고/높음)를 붙인다
 logger = logging.getLogger("storeops_ai")
 
 
 # cv2.putText 는 한글을 그리지 못하므로 tracked 영상에는 영문 라벨을 쓴다.
-CATEGORY_EN = {"파손": "BROKEN", "쓰러짐": "FALL", "쓰레기 투기": "LITTERING",
-               "싸움": "FIGHT"}
+CATEGORY_EN = {"쓰러짐": "FALL", "쓰레기 투기": "LITTERING", "절도": "THEFT"}
 
 
 class Path1BehaviorPipeline:
@@ -160,6 +163,8 @@ class Path1BehaviorPipeline:
             event_id=event_id, camera_id=self.camera_id, event_type="행동",
             category=category, confidence=float(confidence),
             threshold=CATEGORY_THRESHOLDS[category], scores=scores,
+            risk_level=(self.i3d.stack.level(category, confidence) if self.i3d.has_stack and RISK_LEVELS else None),   # 기본은 이진 경보(단계 끔)
+            score_logit=float(math.log(max(confidence, 1e-12) / max(1.0 - confidence, 1e-12))),
             track_ids=list(track_ids), clip_start_frame=start_frame, clip_end_frame=end_frame,
             clip_start_time_sec=start_time, clip_end_time_sec=end_time,
             clip_path=str(clip_path), event_video_path=str(video_path),
@@ -172,6 +177,11 @@ class Path1BehaviorPipeline:
         event.alert_sent = send_first_alert(event)
         self.events.save(event)
         event_hub.publish("event.created", event.to_dict())
+        if not VLM_ON_EVENT:   # 사건 시점에는 VLM을 부르지 않는다. 백엔드 화면에는 "해당 없음"으로 표시한다.
+            updated = self.events.update(event_id, vlm={"status": "not_applicable"})
+            send_vlm_result(event, "not_applicable")
+            event_hub.publish("event.updated", updated)
+            return event
         # FR-EVT-15: 별도 작업. 실패/지연은 위 저장/알림에 영향 없음.
         try:
             future = self.vlm.analyze_async(
@@ -209,10 +219,12 @@ class Path1BehaviorPipeline:
 
     # ------------------------------------------------------------------ 분류 + 사건 발급
 
-    def _classify(self, clip_frames, score_provider):
-        """FR-EVT-05. score_provider 가 있으면 테스트용 점수를, 없으면 학습된 모델을 쓴다."""
+    def _classify(self, clip_frames, score_provider, crop_frames=None):
+        """FR-EVT-05. score_provider 가 있으면 테스트용 점수를, 없으면 학습된 모델을 쓴다. 크롭 입력이 있고 스택이 있으면 A+C1 결합."""
         if score_provider is not None:
             return self.i3d.decide(score_provider(clip_frames))
+        if crop_frames is not None and self.i3d.has_stack:
+            return self.i3d.predict_pair(clip_frames, crop_frames)
         return self.i3d.predict(clip_frames)
 
     def _issue(self, scope, category, confidence, scores, track_ids, clip_frames, event_frames,
@@ -234,13 +246,19 @@ class Path1BehaviorPipeline:
         self.issued_events.append(event)
         return event
 
-    def _infer_full(self, small_buf, window_tids, frames, fps, frame_no, score_provider):
+    def _infer_full(self, small_buf, window_tids, frames, fps, frame_no, score_provider, window_boxes=()):
         """화면 전체 모드: 최근 I3D_WINDOW_SEC 구간을 분류한다 (학습 때와 같은 입력 방식)."""
         track_ids = sorted(set().union(*[t for _, t in window_tids])) if window_tids else []
-        if not track_ids:
-            return None   # 사람이 한 명도 추적되지 않은 구간은 분류하지 않는다
+        # 사람이 추적되지 않은 창도 분류한다: 쓰러진 사람을 추적기가 놓치거나(전도), 사람이 떠난 뒤(유기)가 바로 판정 구간이고,
+        # 학습·OOF 평가에도 사람 유무 조건이 없었다. track_ids는 비어 있을 수 있다.
         model_input = [img for _, img in small_buf]
-        category, confidence, scores = self._classify(model_input, score_provider)
+        crop_input = None
+        if score_provider is None and self.i3d.has_stack:
+            # C1 입력: 창 안 모든 사람 박스의 합집합을 넓혀 원본 프레임에서 자른다(학습과 같은 규칙). 사람이 없으면 화면 전체.
+            boxes = largest_person_boxes([bs for _, bs in window_boxes]) if CROP_LARGEST_PERSON else [b for _, bs in window_boxes for _, b in bs]   # 기본: 학습 때처럼 모든 사람 박스의 합집합
+            crop_input = [cv2.resize(union_crop(frames[fn], boxes), (self.i3d.input_size, self.i3d.input_size), interpolation=cv2.INTER_LINEAR)
+                          for fn, _ in small_buf]
+        category, confidence, scores = self._classify(model_input, score_provider, crop_input)
         t_now = frame_no / fps
         logger.info("[I3D] t=%.1fs %s %.3f | %s", t_now, category, confidence,
                     {k: round(v, 3) for k, v in scores.items() if v >= 0.01})
@@ -288,6 +306,7 @@ class Path1BehaviorPipeline:
         model_size = self.i3d.input_size
         small_buf = deque()      # 화면 전체 모드: (frame_no, 축소 프레임)
         window_tids = deque()    # 화면 전체 모드: (frame_no, 그 프레임의 track ID 집합)
+        window_boxes = deque()   # 화면 전체 모드: (frame_no, 표본 프레임의 사람 박스들) - C1 크롭용
         next_infer_full = win_frames - 1
         did_full_infer = False
         next_infer_track = {}    # crop 모드: track ID -> 다음 분류 프레임
@@ -325,14 +344,18 @@ class Path1BehaviorPipeline:
                     small_buf.append((frame_no, cv2.resize(
                         frame, (model_size, model_size), interpolation=cv2.INTER_LINEAR)))
                 window_tids.append((frame_no, frozenset(d[0] for d in detections)))
+                if frame_no % sample_every == 0:
+                    window_boxes.append((frame_no, [(d[0], d[1:5]) for d in detections]))
                 while small_buf and small_buf[0][0] <= frame_no - win_frames:
                     small_buf.popleft()
                 while window_tids and window_tids[0][0] <= frame_no - win_frames:
                     window_tids.popleft()
+                while window_boxes and window_boxes[0][0] <= frame_no - win_frames:
+                    window_boxes.popleft()
                 if frame_no >= next_infer_full:
                     next_infer_full = frame_no + interval_frames
                     did_full_infer = True
-                    event = self._infer_full(small_buf, window_tids, frames, fps, frame_no, score_provider)
+                    event = self._infer_full(small_buf, window_tids, frames, fps, frame_no, score_provider, window_boxes)
                     if event:
                         self._queue_event_video(event, frames, fps, frame_no)
 
