@@ -20,6 +20,7 @@ import cv2
 from config.config import (
     CATEGORY_THRESHOLDS,
     CROP_LARGEST_PERSON,
+    VLM_ON_EVENT,
     CLIP_MAX_SEC,
     CLIP_MIN_SEC,
     CLIP_DIR,
@@ -319,18 +320,23 @@ class Path1Webcam:
                 print(f"[알림 생략] {exc}")
         self.events.save(event)
         event_hub.publish("event.created", event.to_dict())
-        try:
-            future = self.vlm.analyze_async(
-                images,
-                {"event_id": event.event_id, "camera_id": event.camera_id},
-            )
-            future.add_done_callback(
-                lambda done, event=event: self._persist_vlm_result(event, done)
-            )
-        except Exception as exc:
-            logger.exception("[VLM START FAILED] event=%s", event_id)
-            updated = self.events.update(event_id, vlm={"status": "FAILED", "error": str(exc)})
+        if not VLM_ON_EVENT:   # 사건 시점에는 VLM을 부르지 않는다. 백엔드 화면에는 "해당 없음"으로 표시한다.
+            updated = self.events.update(event_id, vlm={"status": "not_applicable"})
+            send_vlm_result(event, "not_applicable")
             event_hub.publish("event.updated", updated)
+        else:
+            try:
+                future = self.vlm.analyze_async(
+                    images,
+                    {"event_id": event.event_id, "camera_id": event.camera_id},
+                )
+                future.add_done_callback(
+                    lambda done, event=event: self._persist_vlm_result(event, done)
+                )
+            except Exception as exc:
+                logger.exception("[VLM START FAILED] event=%s", event_id)
+                updated = self.events.update(event_id, vlm={"status": "FAILED", "error": str(exc)})
+                event_hub.publish("event.updated", updated)
         self.events_issued.append(event)
 
         print(f"\n[EVENT] {event_id} | {category} | {confidence:.3f} | Track={track_ids}")

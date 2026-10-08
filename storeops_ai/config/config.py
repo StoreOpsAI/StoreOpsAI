@@ -104,6 +104,9 @@ IMAGE_DIR = BASE_DIR / "output" / "representative_images"
 # FR-EVT-15
 VLM_MAX_WORKERS = int(os.getenv("VLM_MAX_WORKERS", "2"))
 # VLM_ENABLED=0이면 VLM을 쓰지 않는다(주소를 비움). Windows에서는 환경변수를 빈 값으로 둘 수 없어(set 변수= 는 변수를 지운다) 별도 스위치를 둔다.
+# 사건이 난 순간에 VLM이 대표 이미지를 읽게 할지 여부. 기본 0 = 끔(사용자 결정 2026-10-08):
+# 경보에는 사건 종류·시각·카메라와 클립·이미지만 보내고, VLM 해석은 점주가 지난 사건을 물을 때만 질문 시점에 한다.
+VLM_ON_EVENT = os.getenv("VLM_ON_EVENT", "0") == "1"
 QWEN_VLM_BASE_URL = "" if os.getenv("VLM_ENABLED", "1") == "0" else os.getenv("QWEN_VLM_BASE_URL", "http://127.0.0.1:8001/v1")
 QWEN_VLM_MODEL = os.getenv("QWEN_VLM_MODEL", "Qwen/Qwen3-VL-8B-Instruct-FP8")
 QWEN_VLM_API_KEY = os.getenv("QWEN_VLM_API_KEY", "")

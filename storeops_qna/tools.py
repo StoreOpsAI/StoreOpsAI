@@ -6,8 +6,11 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import sqlite3
+import urllib.error
+import urllib.request
 from dataclasses import dataclass
 from typing import Any
 
@@ -20,6 +23,10 @@ from datetime import datetime
 ALLOWED_RECORD_TYPES = ("event", "order_draft")
 ALLOWED_EVENT_TYPES = ("fall", "fight", "fire", "theft", "vandalism", "littering", "camera_disconnect", "camera_reconnected")
 RECORD_LABEL = {"event": "사건", "order_draft": "발주 초안"}
+EVENT_TYPE_KO = {"fall": "쓰러짐", "fight": "싸움", "fire": "방화", "theft": "절도", "vandalism": "파손", "littering": "쓰레기 투기",
+                 "camera_disconnect": "카메라 연결 끊김", "camera_reconnected": "카메라 재연결"}
+MAX_DESCRIBE_EVENTS = 5
+DESCRIBE_NOTICE = "※ 사진을 보고 자동으로 해석한 내용이라 틀릴 수 있습니다. 영상으로 확인해 주세요."
 EVENT_ID_RE = re.compile(r"^E\d{3}$")
 STORE_ID_RE = re.compile(r"^S\d{2}$")
 DOC_ID_RE = re.compile(r"^M\d{3}$")
@@ -101,6 +108,23 @@ TOOL_DEFS: list[dict] = [
     {
         "type": "function",
         "function": {
+            "name": "describe_events",
+            "description": (
+                "지난 사건의 대표 사진을 보고 어떤 장면이었는지 설명한다. '그날 무슨 일이 있었어?', '어떤 사건이었는지 알려줘'처럼 "
+                "사건의 내용을 묻는 질문에 쓴다. 반드시 먼저 query_records로 사건 번호를 찾은 뒤, 그 번호만 넣는다. "
+                "한 번에 최대 5건이다. 건수만 묻는 질문에는 쓰지 않는다. 조회만 하며 기록을 바꾸지 않는다."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {"event_ids": {"type": "array", "items": {"type": "string"}, "maxItems": 5,
+                                             "description": "사건 번호 목록. 각각 E와 숫자 세 자리, 예: [\"E001\", \"E002\"]"}},
+                "required": ["event_ids"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "get_event_video",
             "description": (
                 "특정 사건 번호의 영상 위치와 사건 정보를 조회한다. 점주가 특정 사건의 영상을 보여 달라고 할 때 쓴다. "
@@ -166,6 +190,16 @@ def validate_input(name: str, args: Any, ctx: ToolContext) -> dict[str, Any]:
         if scope is not None and (not isinstance(scope, str) or not DOC_ID_RE.match(scope)):
             raise ToolInputError("doc_scope", scope, "문서 번호는 M과 숫자 세 자리여야 합니다")
         out = {"question": q.strip(), "doc_scope": scope}
+    elif name == "describe_events":
+        ids = args["event_ids"]
+        if not isinstance(ids, list) or not ids or not all(isinstance(i, str) for i in ids):
+            raise ToolInputError("event_ids", ids, "사건 번호 목록이어야 합니다")
+        if len(ids) > MAX_DESCRIBE_EVENTS:
+            raise ToolInputError("event_ids", ids, f"한 번에 {MAX_DESCRIBE_EVENTS}건까지만 해석할 수 있습니다")
+        for eid in ids:
+            if not EVENT_ID_RE.match(eid):
+                raise ToolInputError("event_ids", eid, "사건 번호는 E와 숫자 세 자리여야 합니다")
+        out = {"event_ids": list(dict.fromkeys(ids))}
     elif name == "get_event_video":
         eid = args["event_id"]
         if not isinstance(eid, str) or not EVENT_ID_RE.match(eid):
@@ -196,6 +230,8 @@ def execute_tool(name: str, raw_args: Any, ctx: ToolContext) -> dict[str, Any]:
             return _query_records(args, ctx)
         if name == "search_manual":
             return _search_manual(args, ctx)
+        if name == "describe_events":
+            return _describe_events(args, ctx)
         return _get_event_video(args, ctx)
     except Exception as e:  # 저장소 오류 등
         return _error(name, "storage_error" if isinstance(e, sqlite3.Error) else "tool_error",
@@ -206,6 +242,7 @@ _FAIL_MESSAGE = {
     "query_records": "기록 조회에 실패했습니다. 기록이 없다는 뜻이 아니니 잠시 뒤 다시 시도해 주세요.",
     "search_manual": "규정 검색에 실패했습니다. 근거가 없다는 뜻이 아니니 잠시 뒤 다시 시도해 주세요.",
     "get_event_video": "사건 영상 조회에 실패했습니다.",
+    "describe_events": "사건 사진 해석에 실패했습니다. 사건이 없다는 뜻이 아니니 영상을 직접 확인해 주세요.",
 }
 
 
@@ -246,6 +283,8 @@ def _query_records(args: dict, ctx: ToolContext) -> dict[str, Any]:
                 records.append(item)
         ids = [record["record_id"] for record in records]
         msg = f"{label} {len(ids)}건: {', '.join(ids)}" if ids else f"해당 기간에 기록된 {label}이(가) 없습니다."
+        if ids and args["record_type"] == "event":
+            msg += " (" + _event_summary(records) + ")"
         return {"status": "ok", "count": len(ids), "record_ids": ids, "records": records,
                 "conditions": cond, "message": msg}
 
@@ -285,6 +324,69 @@ def _query_records(args: dict, ctx: ToolContext) -> dict[str, Any]:
     ids = [r["record_id"] for r in records]
     msg = f"{label} {len(ids)}건: {', '.join(ids)}" if ids else f"해당 기간에 기록된 {label}이(가) 없습니다."
     return {"status": "ok", "count": len(ids), "record_ids": ids, "records": records, "conditions": cond, "message": msg}
+
+
+def _event_time(iso: str) -> str:
+    """한국 시간 ISO 문자열을 '10/08 14:20' 형태로 줄인다."""
+    dt = parse_kst_iso(iso)
+    return f"{dt.month:02d}/{dt.day:02d} {dt.hour:02d}:{dt.minute:02d}"
+
+
+def _event_summary(records: list[dict], limit: int = 10) -> str:
+    """사건 목록 message에 붙일 한 줄 요약: 번호 종류 시각 카메라. limit건을 넘으면 나머지는 건수만."""
+    parts = [f"{r['record_id']} {EVENT_TYPE_KO.get(r['event_type'], r['event_type'])} {_event_time(r['occurred_at'])} {r['camera_id']}"
+             for r in records[:limit]]
+    extra = f" 외 {len(records) - limit}건" if len(records) > limit else ""
+    return ", ".join(parts) + extra
+
+
+def _post_backend_describe(ctx: ToolContext, event_ids: list[str]) -> list[dict]:
+    """백엔드 내부 API에 사건 사진 해석을 요청한다. 실패하면 예외(URLError 등)를 그대로 던진다."""
+    token = os.getenv("STOREOPS_QNA_TOKEN", "")
+    body = json.dumps({"store_id": ctx.store_id, "event_ids": event_ids}, ensure_ascii=False).encode("utf-8")
+    request = urllib.request.Request(
+        ctx.cfg.backend_url + "/api/internal/qna/describe", data=body, method="POST",
+        headers={"Content-Type": "application/json; charset=utf-8", "X-QNA-Token": token})
+    with urllib.request.urlopen(request, timeout=ctx.cfg.llm.timeout_sec) as response:
+        return json.loads(response.read().decode("utf-8"))["descriptions"]
+
+
+def _describe_one(d: dict) -> tuple[str, bool]:
+    """사건 하나의 안내 문장과 사진 해석이 들어 있는지 여부."""
+    head = f"{d['event_id']} {d.get('category_ko', '')} 의심({_event_time(d['occurred_at'])}, {d['camera_id']})" if d.get("occurred_at") else d["event_id"]
+    if d["status"] == "ok":
+        return f"{head}: {d['description']}", True
+    if d["status"] == "no_images":
+        return f"{head}: 저장된 대표 사진이 없어 내용을 해석하지 못했습니다.", False
+    if d["status"] == "vlm_unavailable":
+        return f"{head}: 사진 해석 서버를 사용할 수 없어 내용을 설명하지 못했습니다.", False
+    return f"{d['event_id']}: 이 매장에서 해당 번호의 사건을 찾을 수 없습니다.", False
+
+
+def _describe_events(args: dict, ctx: ToolContext) -> dict[str, Any]:
+    """지난 사건의 대표 사진을 백엔드의 VLM으로 해석한다. 이 매장 사건만 해석하고, 해석할 수 없으면 사유를 그대로 알린다."""
+    ids = args["event_ids"]
+    if ctx.records is not None:
+        known = {r["event_id"] for r in ctx.records["events"] if r["store_id"] == ctx.store_id}
+        if "event" in ctx.records.get("errors", {}):
+            return _error("describe_events", "source_error", _FAIL_MESSAGE["describe_events"], args)
+        unknown = [i for i in ids if i not in known]
+        if unknown:   # 다른 매장 사건도 '없는 번호'와 똑같이 취급한다 (NFR-06)
+            return {"status": "error", "error_code": "not_found", "tool": "describe_events",
+                    "message": f"{', '.join(unknown)} 번호의 사건 기록이 없습니다."}
+    if not ctx.cfg.backend_url:
+        return {"status": "vlm_unavailable", "event_ids": ids, "descriptions": [],
+                "message": "사진 해석 서버 주소가 설정되지 않아 사건 내용을 설명할 수 없습니다. 영상으로 직접 확인해 주세요."}
+    try:
+        rows = _post_backend_describe(ctx, ids)
+    except (urllib.error.URLError, OSError, ValueError, KeyError) as e:
+        return {"status": "vlm_unavailable", "event_ids": ids, "descriptions": [],
+                "message": "사진 해석 서버에 연결하지 못해 사건 내용을 설명할 수 없습니다. 영상으로 직접 확인해 주세요.",
+                "detail": f"{type(e).__name__}: {e}"}
+    lines, described = zip(*[_describe_one(d) for d in rows]) if rows else ((), ())
+    status = "ok" if any(described) else "vlm_unavailable"
+    return {"status": status, "event_ids": ids, "descriptions": rows,
+            "message": "\n".join(lines) + ("\n" + DESCRIBE_NOTICE if any(described) else "")}
 
 
 def _get_event_video(args: dict, ctx: ToolContext) -> dict[str, Any]:

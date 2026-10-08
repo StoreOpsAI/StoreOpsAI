@@ -23,7 +23,7 @@ from .tools import (
 SYSTEM_PROMPT = """당신은 무인매장 점주의 질문에 답하는 Agent입니다. 한국어로 짧고 정확하게 답합니다.
 
 [할 수 있는 일]
-- 아래 도구 세 개로 '조회'만 할 수 있습니다: query_records, search_manual, get_event_video
+- 아래 도구 네 개로 '조회'만 할 수 있습니다: query_records, search_manual, describe_events, get_event_video
 - 발주 승인, 알림 발송, 기록 수정, 상태 변경은 할 수 없습니다. 그런 요청은 도구를 부르지 말고 "저는 조회만 할 수 있어 직접 처리할 수 없습니다. 화면에서 점주님이 직접 처리해 주세요."라고 답하세요.
 
 [현재 정보]
@@ -36,6 +36,7 @@ SYSTEM_PROMPT = """당신은 무인매장 점주의 질문에 답하는 Agent입
 - 질문의 일반적인 오타와 띄어쓰기 누락은 문맥으로 이해합니다. 뜻이 불명확하면 추측하지 말고 확인합니다. 사건 번호, 날짜, 수량은 임의로 고치지 않습니다.
 - 건수·기록 질문 → query_records (record_type: event=사건, order_draft=발주 초안). 쓰러짐처럼 종류를 지정하면 event_type 필터를 씁니다.
 - 규정·절차 질문 → search_manual (질문 문장을 그대로 question에 넣습니다)
+- 지난 사건의 내용(그날 무슨 일이 있었는지, 어떤 사건이었는지) → 먼저 query_records로 사건 번호를 찾고, 그 번호로 describe_events (사건 사진을 보고 해석한다)
 - 특정 사건 영상 → get_event_video. 사건 번호를 모르면 먼저 query_records로 사건 목록을 찾고, 그 결과를 보고 다음 도구를 고릅니다.
 - 도구는 한 번에 하나만 부르고, 결과를 본 뒤 다음 행동을 정합니다. 도구를 부르기 전에 이유를 한 문장으로 적습니다.
 
@@ -48,6 +49,7 @@ SYSTEM_PROMPT = """당신은 무인매장 점주의 질문에 답하는 Agent입
    - status=not_received → "그 기간의 기록을 아직 받지 못했습니다"
    - status=no_video → 도구가 알려 준 영상이 없는 이유를 그대로 전합니다
    - status=insufficient_evidence → 근거가 부족하다고 답하고 추측하지 않습니다
+   - status=vlm_unavailable → 사진 해석을 할 수 없다고 알리고, 사건 번호와 영상 확인을 안내합니다. 사건 내용을 추측하지 않습니다
 4. 도구 결과의 message 문장을 우선 활용하고, 도구 호출 없이 추측으로 답하지 않습니다.
 5. 점주 개인정보나 영상 속 인물에 대해서는 묻지도, 추측하지도 않습니다."""
 
@@ -91,6 +93,8 @@ class AskResult:
                     parts.append(f"- 매장 기록 조회 결과: {', '.join(s['record_ids']) or '없음'} ({s['count']}건)")
                 elif s["type"] == "video":
                     parts.append(f"- 사건 영상 {s['event_id']}: {s['video_uri']}")
+                elif s["type"] == "description":
+                    parts.append(f"- 사건 사진 해석 {s['event_id']} {s.get('category_ko') or ''}: {s['text']}")
         return "\n".join(parts)
 
 
@@ -214,11 +218,13 @@ class Agent:
                 self._log(sid, step, name, raw, "rejected", None, reason, f"입력 검사 실패: {e}")
                 return finish(e.owner_message(), "invalid_input", True)
 
-            # 질문에 없는 사건 번호는 앞선 기록 조회에서 확인된 경우에만 영상 조회에 사용한다.
-            if name == "get_event_video" and args["event_id"] not in re.findall(r"E\d+", question, re.IGNORECASE):
+            # 질문에 없는 사건 번호는 앞선 기록 조회에서 확인된 경우에만 영상 조회·사진 해석에 사용한다.
+            used_ids = [args["event_id"]] if name == "get_event_video" else (args["event_ids"] if name == "describe_events" else [])
+            if used_ids:
                 found_ids = {record_id for result in executed if result.get("tool") == "query_records"
                              and result.get("status") == "ok" for record_id in result.get("record_ids", [])}
-                if args["event_id"] not in found_ids:
+                found_ids |= {i.upper() for i in re.findall(r"E\d+", question, re.IGNORECASE)}
+                if any(i not in found_ids for i in used_ids):
                     self._log(sid, step, name, args, "rejected", None, reason, "기록 조회로 확인되지 않은 사건 번호")
                     reply({"status": "rejected", "message": "먼저 query_records로 사건 번호를 확인하세요."})
                     continue
@@ -266,6 +272,13 @@ class Agent:
                 if st == "ok":
                     sources.append({"type": "video", "event_id": r["event_id"], "video_uri": r["video_uri"],
                                     "camera_id": r.get("camera_id"), "clip": r.get("clip")})
+                else:
+                    notices.append(r["message"])
+            elif t == "describe_events":
+                conditions.append(f"describe_events · {', '.join(r.get('event_ids', []))}")
+                if st == "ok":
+                    sources += [{"type": "description", "event_id": d["event_id"], "category_ko": d.get("category_ko"),
+                                 "text": d["description"]} for d in r["descriptions"] if d.get("status") == "ok"]
                 else:
                     notices.append(r["message"])
             elif t == "search_manual":

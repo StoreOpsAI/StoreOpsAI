@@ -13,7 +13,7 @@ import logging
 from config.config import (
     YOLO_MODEL_PATH, TRACKER_CONFIG, CONF_THRESHOLD, PERSON_CLASS_ID,
     CLIP_MIN_SEC, CLIP_MAX_SEC, EVENT_VIDEO_SEC, EVENT_VIDEO_PRE_SEC, EVENT_VIDEO_POST_SEC, CATEGORY_THRESHOLDS,
-    EXPANDED_CROP_CATEGORIES, CROP_LARGEST_PERSON, EXPAND_X, EXPAND_Y, EVENT_DIR, CLIP_DIR, IMAGE_DIR,
+    EXPANDED_CROP_CATEGORIES, CROP_LARGEST_PERSON, EXPAND_X, EXPAND_Y, EVENT_DIR, CLIP_DIR, IMAGE_DIR, VLM_ON_EVENT,
     I3D_INPUT_MODE, I3D_WINDOW_SEC, I3D_INFER_INTERVAL_SEC, I3D_BUFFER_FPS, EVENT_COOLDOWN_SEC,
 )
 from models.yolo_detector import YOLODetector
@@ -177,6 +177,11 @@ class Path1BehaviorPipeline:
         event.alert_sent = send_first_alert(event)
         self.events.save(event)
         event_hub.publish("event.created", event.to_dict())
+        if not VLM_ON_EVENT:   # 사건 시점에는 VLM을 부르지 않는다. 백엔드 화면에는 "해당 없음"으로 표시한다.
+            updated = self.events.update(event_id, vlm={"status": "not_applicable"})
+            send_vlm_result(event, "not_applicable")
+            event_hub.publish("event.updated", updated)
+            return event
         # FR-EVT-15: 별도 작업. 실패/지연은 위 저장/알림에 영향 없음.
         try:
             future = self.vlm.analyze_async(

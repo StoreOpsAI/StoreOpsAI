@@ -8,6 +8,16 @@ logger = logging.getLogger("storeops_ai")
 logging.basicConfig(level=logging.INFO)
 
 
+# 점주에게 가는 경보에는 점수·임계값 같은 내부 값을 보내지 않는다(사건 종류·시각·카메라·클립·이미지만).
+# 전체 값은 탐지 서비스의 사건 JSON 파일(output/events)에 남는다.
+ALERT_INTERNAL_FIELDS = ("scores", "threshold", "confidence", "risk_level", "score_logit")
+
+
+def alert_payload(event) -> dict:
+    """백엔드 사건 등록 API로 보낼 본문. 내부 점수 필드를 뺀다."""
+    return {key: value for key, value in event.to_dict().items() if key not in ALERT_INTERNAL_FIELDS}
+
+
 def send_first_alert(event):
     """FR-EVT-07/11: 설정된 HTTP 웹훅(StoreOpsAI 백엔드 사건 등록 API)으로 즉시 전송한다."""
     if not ALERT_WEBHOOK_URL:
@@ -16,7 +26,7 @@ def send_first_alert(event):
         logger.warning("[FIRST ALERT NOT CONFIGURED] event=%s", event.event_id)
         return False
     # backend가 같은 output 볼륨을 공유하므로 경로는 상대 경로 그대로 보낸다(백엔드 /clip 라우터가 해석).
-    body = json.dumps(event.to_dict(), ensure_ascii=False).encode("utf-8")
+    body = json.dumps(alert_payload(event), ensure_ascii=False).encode("utf-8")
     ingest_token = os.getenv("EVENT_INGEST_TOKEN", "")
     headers = {"Content-Type": "application/json; charset=utf-8"}
     if ingest_token:
