@@ -3,6 +3,7 @@
 현재 배포 가중치는 torchvision S3D이다. I3D로 교체하려면 I3D 구조로 재학습한
 체크포인트가 필요하므로, 서비스 요구사항은 화면 전체 temporal 행동분류로 정의한다.
 """
+import math
 import os
 from pathlib import Path
 
@@ -23,13 +24,13 @@ PERSON_CLASS_ID = 0
 # FR-EVT-03~04
 CLIP_MIN_SEC = float(os.getenv("CLIP_MIN_SEC", "2.0"))
 CLIP_MAX_SEC = float(os.getenv("CLIP_MAX_SEC", "4.0"))
-# 파손/싸움 증거 보존용: bbox 사방으로 폭·높이의 50%를 확장한다.
+# 증거 보존용 bbox 확장 비율(확장 크롭을 쓰는 카테고리가 있을 때만 사용; 현재 학습한 카테고리에는 없다).
 EXPAND_X = float(os.getenv("EXPAND_X", "0.50"))
 EXPAND_Y = float(os.getenv("EXPAND_Y", "0.50"))
-EXPANDED_CROP_CATEGORIES = {"싸움", "파손"}
+EXPANDED_CROP_CATEGORIES: set = set()
 
-# FR-EVT-05: 요구사항에 정의된 5개 점수만 운영 API에 노출한다.
-CATEGORIES = ["정상", "쓰러짐", "싸움", "파손", "쓰레기 투기"]
+# FR-EVT-05: 우리가 학습한 4개(정상·전도·유기·절도)만 운영 점수로 노출한다. 싸움·파손·방화는 학습하지 않아 뺐다.
+CATEGORIES = ["정상", "쓰러짐", "쓰레기 투기", "절도"]
 # 임시 기준값은 비정상 클래스 모두 0.60으로 두고 환경변수로 조정할 수 있다.
 EVENT_THRESHOLD = float(os.getenv("EVENT_THRESHOLD", "0.60"))
 
@@ -37,15 +38,30 @@ def _category_threshold(env_name: str, default: str) -> float:
     """개별 설정이 없으면 기존 공통 EVENT_THRESHOLD 설정을 계속 존중한다."""
     return float(os.getenv(env_name, os.getenv("EVENT_THRESHOLD", default)))
 
+I3D_CROP_WEIGHT_PATH = os.getenv("I3D_CROP_WEIGHT_PATH", str(BASE_DIR / "training" / "runs" / "ours_c1_final" / "best.pt"))   # 사람 크롭(C1) 모델
+I3D_STACK_PATH = os.getenv("I3D_STACK_PATH", str(BASE_DIR / "training" / "runs" / "ours_stack" / "fusion.json"))                # A+C1 동적 결합·임계값(OOF). 이전 로지스틱은 stack_logistic_old.json
+# 1이면 C1 크롭을 가장 큰 인물 한 명의 박스로만 만든다(MVP 단순화). 기본 0 = 창 안 모든 사람 박스의 합집합(학습 때 규칙). 사람이 여럿인 창에서 1이면 C1 정확도가 97%→80%로 떨어진다(실측).
+CROP_LARGEST_PERSON = os.getenv("CROP_LARGEST_PERSON", "0") == "1"
+I3D_USE_STACK = os.getenv("I3D_USE_STACK", "1") == "1" and Path(I3D_CROP_WEIGHT_PATH).is_file() and Path(I3D_STACK_PATH).is_file()
+
+def _stack_default(category: str, fallback: str) -> str:
+    """스택을 쓰면 OOF에서 정한 임계값(확률)을, 아니면 A 단독 기본값을 쓴다. 환경변수가 있으면 그것이 우선."""
+    if I3D_USE_STACK:
+        import json
+        spec = json.loads(Path(I3D_STACK_PATH).read_text(encoding="utf-8"))["classes"].get(category)
+        if spec:
+            return str(1 / (1 + math.exp(-spec["threshold_logit"])))
+    return fallback
+
+# A 단독 기본값 = OOF(재현율>=0.9, 오경보 최소)에서 고른 점수 6.23/4.70/2.15의 확률값(sigmoid). 스택 기본값은 stack.json의 OOF 임계값.
 CATEGORY_THRESHOLDS = {
-    "쓰러짐": _category_threshold("FALL_EVENT_THRESHOLD", "0.60"),
-    "싸움": _category_threshold("FIGHT_EVENT_THRESHOLD", "0.60"),
-    "파손": _category_threshold("BROKEN_EVENT_THRESHOLD", "0.60"),
-    "쓰레기 투기": _category_threshold("LITTERING_EVENT_THRESHOLD", "0.60"),
+    "쓰러짐": _category_threshold("FALL_EVENT_THRESHOLD", _stack_default("쓰러짐", "0.998")),
+    "쓰레기 투기": _category_threshold("LITTERING_EVENT_THRESHOLD", _stack_default("쓰레기 투기", "0.991")),
+    "절도": _category_threshold("THEFT_EVENT_THRESHOLD", _stack_default("절도", "0.896")),
 }
 
 # FR-EVT-05: 학습된 행동분류 모델 (torchvision S3D, training/train_i3d.py 로 학습)
-I3D_WEIGHT_PATH = os.getenv("I3D_WEIGHT_PATH", str(BASE_DIR / "training" / "runs" / "mc_stage2" / "best.pt"))
+I3D_WEIGHT_PATH = os.getenv("I3D_WEIGHT_PATH", str(BASE_DIR / "training" / "runs" / "ours_a_final" / "best.pt"))
 I3D_DEVICE = os.getenv("I3D_DEVICE", "auto")  # auto | cpu | cuda
 
 # 학습 라벨(영문) -> 서비스 카테고리(한글). 기존 체크포인트의 미요구 클래스는 점수 응답에서 제외한다.
@@ -87,7 +103,8 @@ IMAGE_DIR = BASE_DIR / "output" / "representative_images"
 
 # FR-EVT-15
 VLM_MAX_WORKERS = int(os.getenv("VLM_MAX_WORKERS", "2"))
-QWEN_VLM_BASE_URL = os.getenv("QWEN_VLM_BASE_URL", "http://127.0.0.1:8001/v1")
+# VLM_ENABLED=0이면 VLM을 쓰지 않는다(주소를 비움). Windows에서는 환경변수를 빈 값으로 둘 수 없어(set 변수= 는 변수를 지운다) 별도 스위치를 둔다.
+QWEN_VLM_BASE_URL = "" if os.getenv("VLM_ENABLED", "1") == "0" else os.getenv("QWEN_VLM_BASE_URL", "http://127.0.0.1:8001/v1")
 QWEN_VLM_MODEL = os.getenv("QWEN_VLM_MODEL", "Qwen/Qwen3-VL-8B-Instruct-FP8")
 QWEN_VLM_API_KEY = os.getenv("QWEN_VLM_API_KEY", "")
 QWEN_VLM_TIMEOUT_SEC = float(os.getenv("QWEN_VLM_TIMEOUT_SEC", "60"))

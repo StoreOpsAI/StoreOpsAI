@@ -30,6 +30,8 @@ class EventCandidate(BaseModel):
     category: str
     confidence: Optional[float] = None
     threshold: Optional[float] = None
+    risk_level: Optional[str] = None      # 위험도 단계(주의/경고/높음). A 단독일 때는 비움
+    score_logit: Optional[float] = None   # 그 카테고리의 로그 오즈 점수(확률이 아님)
     scores: Dict[str, float] = Field(default_factory=dict)
     track_ids: List[int] = Field(default_factory=list)
 

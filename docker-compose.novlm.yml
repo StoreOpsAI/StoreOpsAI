@@ -1,0 +1,15 @@
+# VLM(Qwen) 없이 CCTV 탐지 서비스를 띄우기 위한 덮어쓰기 파일입니다.
+# 사용: docker compose -f docker-compose.yml -f docker-compose.novlm.yml up -d --build
+# - qwen-vllm은 "vlm" 프로필로 옮겨 기본 실행에서 빠집니다(필요하면 --profile vlm).
+# - storeops-ai가 qwen-vllm 헬스체크를 기다리지 않도록 depends_on을 backend만 남깁니다.
+# - VLM_ENABLED=0이면 QWEN_VLM_BASE_URL이 비어 VLM 호출이 일어나지 않습니다.
+# depends_on의 !override 태그는 Docker Compose 2.24 이상이 필요합니다.
+services:
+  qwen-vllm:
+    profiles: ["vlm"]
+  storeops-ai:
+    environment:
+      VLM_ENABLED: "0"
+    depends_on: !override
+      backend:
+        condition: service_started
