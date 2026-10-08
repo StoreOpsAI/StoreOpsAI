@@ -76,7 +76,8 @@ services:
       - "8100:8000"
     volumes:
       - ./storeops_ai/input:/app/input
-      - ./storeops_ai/output:/app/output
+      # 백엔드와 같은 폴더를 봐야 점주 화면의 영상·이미지(/detector)가 공유 폴더의 사건 JSON과 파일을 읽는다
+      - ${STOREOPS_OUTPUT_HOST_DIR:-./storeops_ai/output}:/app/output
     depends_on:
       backend:
         condition: service_started
