@@ -77,15 +77,6 @@ VLM은 **사건이 난 순간이 아니라 점주가 지난 사건을 물을 때
 - 백엔드 컴퓨터는 8000 포트가 카메라·LLM 컴퓨터에서 열려 있어야 하고, 공유 폴더는 카메라 컴퓨터 계정에 쓰기 권한이 있어야 합니다.
 - 확인 범위: 같은 컴퓨터에서 폴더 두 개를 같은 공유 폴더로 가정해(탐지 서비스는 `STOREOPS_OUTPUT_DIR`, 백엔드도 같은 폴더) 클립·이미지 저장·서빙·질문 시점 해석까지 확인했습니다. 실제 네트워크 공유(SMB)와 방화벽은 확인하지 못했습니다.
 
-### 설정은 모두 `.env`에
-
-비밀(토큰·비밀번호)과 컴퓨터마다 다른 주소·경로는 코드에 넣지 않고 각 컴퓨터의 `.env`에 둡니다. `.env`는 `.gitignore`에 들어 있어 저장소에 올라가지 않고, 저장소에는 값이 빈 `.env.example`만 있습니다.
-- **카메라 컴퓨터**: `storeops_ai/.env`(템플릿: `storeops_ai/.env.example`). `python pipelines/path1_webcam.py`로 직접 실행하면 `config`가 이 파일을 읽습니다. 셸에 이미 설정된 환경변수가 있으면 그 값이 우선하고, 값이 빈 줄은 무시되어 기본값이 쓰입니다. 도커로 실행하면 compose가 같은 파일을 읽습니다.
-- **백엔드 컴퓨터**: 루트 `.env`(`STOREOPS_AI_INGEST_TOKENS_JSON`, `STOREOPS_QNA_TOKEN`, `STOREOPS_QNA_URL`, `STOREOPS_DEMAND_TOKENS_JSON`, `POSTGRES_PASSWORD`, `STOREOPS_OUTPUT_HOST_DIR`, `STOREOPS_VLM_URL` 등).
-- **LLM 컴퓨터**: `STOREOPS_QNA_TOKEN`(백엔드와 같은 값), `STOREOPS_BACKEND_URL`, `STOREOPS_QNA_LLM_URL`.
-- 토큰은 랜덤 문자열을 새로 만들어 쓰고(`python -c "import secrets;print(secrets.token_urlsafe(32))"`), 공유 폴더 로그인 정보는 `.env`가 아니라 윈도우 자격 증명 관리자에 저장합니다.
-- 기존 저장소의 `docker-compose.yml`, `backend/.env.example`에는 개발용 DB 비밀번호가 적혀 있으니 실제로 쓸 때는 `.env`의 값으로 바꾸세요.
-
 ## 가중치 (저장소에 포함하지 않음)
 
 `storeops_ai/training/runs/` 아래에 같은 이름으로 둡니다(도커 빌드 컨텍스트에 포함되도록 `COPY . .` 전에 배치).
@@ -104,7 +95,6 @@ VLM은 **사건이 난 순간이 아니라 점주가 지난 사건을 물을 때
 | --- | --- | --- |
 | `VLM_ON_EVENT` | 탐지 서비스 | 1이면 사건 시점에 VLM이 이미지를 읽음(기본 0) |
 | `CONFIRMATIONS_REQUIRED` | 탐지 서비스(실시간 웹캠) | 연속 확인 횟수(기본 1, 이전 3) |
-| `.env` 읽기 | 탐지 서비스 | `config/config.py`의 `load_env_file`이 `storeops_ai/.env`를 읽음(표준 라이브러리, 기존 환경변수 우선) |
 | `STOREOPS_OUTPUT_DIR` | 탐지 서비스·백엔드 | 클립·대표 이미지 저장·읽기 폴더(공유 폴더 가능) |
 | `STOREOPS_BACKEND_URL` | 질문 Agent | 백엔드 주소. 없으면 사진 해석 없이 사건 정보만 안내 |
 | `QWEN_VLM_BASE_URL`, `QWEN_VLM_MODEL` | 백엔드 | 질문 시점 VLM 서버(compose에서 설정) |
