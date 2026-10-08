@@ -39,7 +39,8 @@ VLM은 **사건이 난 순간이 아니라 점주가 지난 사건을 물을 때
 | `pipelines/path1_behavior.py` | 사람이 없는 창도 분류, C1 크롭 입력, 사건 시점 VLM 호출 제거(`VLM_ON_EVENT=0`) |
 | `pipelines/path1_webcam.py` | 실시간 웹캠 모드: A+C1 결합, 사람 게이트 제거, 확인 횟수 기본 1, 사건 시점 VLM 호출 제거 |
 | `utils/notification.py` | 경보 본문에서 `scores`·`threshold`·`confidence`·`risk_level`·`score_logit` 제외(탐지 서비스의 사건 JSON 파일에는 전체 값 보존) |
-| `schemas/event_schema.py`, `requirements.txt`, `webcam_i3d.py`, `README.md`, `WEBCAM_TEST.md`, `tests/` | 필드 추가, WebSocket 의존성, 4카테고리 기준 정리, 테스트 |
+| `schemas/event_schema.py` | 사건 시각을 시간대 포함으로, 저장 폴더 기준 상대 경로로 정규화, 내부 필드 추가 |
+| `requirements.txt`, `webcam_i3d.py`, `README.md`, `WEBCAM_TEST.md`, `tests/` | 필드 추가, WebSocket 의존성, 4카테고리 기준 정리, 테스트 |
 
 **백엔드 (`backend/`)**
 
@@ -61,6 +62,21 @@ VLM은 **사건이 난 순간이 아니라 점주가 지난 사건을 물을 때
 
 **compose**: `docker-compose.yml`에서 백엔드에 `QWEN_VLM_BASE_URL`·`QWEN_VLM_MODEL`을 주고, 탐지 서비스가 VLM 헬스체크를 기다리던 의존성을 뺐습니다(사건 시점에 VLM을 쓰지 않으므로). `docker-compose.novlm.yml`은 VLM 서버를 아예 띄우지 않을 때의 덮어쓰기 파일입니다.
 
+## 컴퓨터를 나눠서 쓸 때 (카메라 / 백엔드 / LLM)
+
+탐지 서비스는 클립과 대표 이미지를 파일로 저장하고 백엔드에는 **경로만** 보내므로, 둘이 다른 컴퓨터면 같은 폴더를 보게 해야 합니다.
+백엔드 컴퓨터에 공유 폴더를 만들고 카메라 컴퓨터가 그 폴더에 저장하는 방식입니다.
+
+| 컴퓨터 | 설정 |
+| --- | --- |
+| **백엔드** | 공유 폴더를 만들고 compose 실행 때 `STOREOPS_OUTPUT_HOST_DIR=<그 폴더>`로 지정. `STOREOPS_AI_INGEST_TOKENS_JSON`(토큰→매장), `STOREOPS_QNA_URL`(LLM 컴퓨터 주소), VLM 서버가 다른 컴퓨터면 `STOREOPS_VLM_URL`. 탐지 서비스를 이 컴퓨터에서 돌리지 않으면 `docker compose up -d postgres backend frontend demand`처럼 `storeops-ai`를 빼고 실행 |
+| **카메라(탐지 서비스)** | `ALERT_WEBHOOK_URL=http://<백엔드>:8000/api/internal/events`, `VLM_RESULT_WEBHOOK_URL=http://<백엔드>:8000/api/internal/events/{event_id}/vlm`, `EVENT_INGEST_TOKEN`(백엔드에 등록한 토큰), **`STOREOPS_OUTPUT_DIR=\\<백엔드>\<공유 폴더>`**(클립·대표 이미지가 여기에 저장됨). 사건 JSON(내부 점수 포함)은 이 컴퓨터의 `output/events`에 남음 |
+| **LLM(질문 Agent)** | `STOREOPS_QNA_TOKEN`(백엔드와 같은 값), `STOREOPS_BACKEND_URL=http://<백엔드>:8000`, `STOREOPS_QNA_LLM_URL` |
+
+- 사건 시각은 **시간대를 포함해** 보냅니다. 백엔드는 시간대 없는 시각을 UTC로 간주하므로, 한국 시간으로 도는 카메라 컴퓨터에서 시간대 없이 보내면 사건 시각이 9시간 어긋납니다(고침).
+- 백엔드 컴퓨터는 8000 포트가 카메라·LLM 컴퓨터에서 열려 있어야 하고, 공유 폴더는 카메라 컴퓨터 계정에 쓰기 권한이 있어야 합니다.
+- 확인 범위: 같은 컴퓨터에서 폴더 두 개를 같은 공유 폴더로 가정해(탐지 서비스는 `STOREOPS_OUTPUT_DIR`, 백엔드도 같은 폴더) 클립·이미지 저장·서빙·질문 시점 해석까지 확인했습니다. 실제 네트워크 공유(SMB)와 방화벽은 확인하지 못했습니다.
+
 ## 가중치 (저장소에 포함하지 않음)
 
 `storeops_ai/training/runs/` 아래에 같은 이름으로 둡니다(도커 빌드 컨텍스트에 포함되도록 `COPY . .` 전에 배치).
@@ -79,6 +95,7 @@ VLM은 **사건이 난 순간이 아니라 점주가 지난 사건을 물을 때
 | --- | --- | --- |
 | `VLM_ON_EVENT` | 탐지 서비스 | 1이면 사건 시점에 VLM이 이미지를 읽음(기본 0) |
 | `CONFIRMATIONS_REQUIRED` | 탐지 서비스(실시간 웹캠) | 연속 확인 횟수(기본 1, 이전 3) |
+| `STOREOPS_OUTPUT_DIR` | 탐지 서비스·백엔드 | 클립·대표 이미지 저장·읽기 폴더(공유 폴더 가능) |
 | `STOREOPS_BACKEND_URL` | 질문 Agent | 백엔드 주소. 없으면 사진 해석 없이 사건 정보만 안내 |
 | `QWEN_VLM_BASE_URL`, `QWEN_VLM_MODEL` | 백엔드 | 질문 시점 VLM 서버(compose에서 설정) |
 

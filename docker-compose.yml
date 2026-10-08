@@ -35,12 +35,13 @@ services:
       STOREOPS_DEMAND_TOKENS_JSON: ${STOREOPS_DEMAND_TOKENS_JSON:?매장별 수요 서비스 토큰 매핑을 설정하세요}
       STOREOPS_AI_INGEST_TOKENS_JSON: ${STOREOPS_AI_INGEST_TOKENS_JSON:?매장별 탐지 토큰 매핑을 설정하세요}
       # 점주가 지난 사건을 물을 때 질문 Agent 요청으로 대표 이미지를 해석하는 VLM 서버(사건 시점에는 호출하지 않음)
-      QWEN_VLM_BASE_URL: http://qwen-vllm:8000/v1
+      QWEN_VLM_BASE_URL: ${STOREOPS_VLM_URL:-http://qwen-vllm:8000/v1}   # VLM이 다른 컴퓨터면 그 주소로 바꾼다
       QWEN_VLM_MODEL: ${QWEN_VLM_MODEL:-Qwen/Qwen3-VL-8B-Instruct-FP8}
     ports:
       - "8000:8000"
     volumes:
-      - ./storeops_ai/output:/app/output
+      # 탐지 서비스가 다른 컴퓨터면 STOREOPS_OUTPUT_HOST_DIR을 그 컴퓨터가 저장하는 공유 폴더로 지정한다
+      - ${STOREOPS_OUTPUT_HOST_DIR:-./storeops_ai/output}:/app/output
     depends_on:
       postgres:
         condition: service_healthy

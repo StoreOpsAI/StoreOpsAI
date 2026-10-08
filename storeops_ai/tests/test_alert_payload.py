@@ -50,5 +50,21 @@ class AlertPayloadTest(unittest.TestCase):
         self.assertEqual(event.backend_event_id, "E010")
 
 
+class SharedFolderPathTest(unittest.TestCase):
+    """탐지 서비스가 다른 컴퓨터의 공유 폴더에 저장해도 백엔드가 읽을 상대 경로로 바뀌는지 확인한다."""
+
+    def test_path_under_media_dir_becomes_output_relative(self):
+        import tempfile
+        from pathlib import Path
+        from schemas import event_schema
+
+        with tempfile.TemporaryDirectory() as share:
+            clip = Path(share) / "clips" / "E001_10sec.mp4"
+            with patch.object(event_schema, "MEDIA_DIR", Path(share)):
+                self.assertEqual(event_schema._portable_output_uri(str(clip)), "output/clips/E001_10sec.mp4")
+                # 저장 폴더 밖 경로는 기존 규칙(/output/ 이후만 남김)을 따른다
+                self.assertEqual(event_schema._portable_output_uri(r"D:\old\output\clips\E002.mp4"), "output/clips/E002.mp4")
+
+
 if __name__ == "__main__":
     unittest.main()

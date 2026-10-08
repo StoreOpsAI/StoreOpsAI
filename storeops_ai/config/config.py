@@ -97,9 +97,13 @@ if abs(EVENT_VIDEO_PRE_SEC + EVENT_VIDEO_POST_SEC - EVENT_VIDEO_SEC) > 1e-9:
 CAMERA_DISCONNECT_SEC = float(os.getenv("CAMERA_DISCONNECT_SEC", "60.0"))
 
 # 저장 경로 (Path 객체여야 pipelines/path1_behavior.py 의 `CLIP_DIR / "..."` 가 동작한다)
-CLIP_DIR = BASE_DIR / "output" / "clips"
+# 클립·대표 이미지를 저장하는 곳. 탐지 서비스와 백엔드가 다른 컴퓨터일 때는 백엔드 컴퓨터의 공유 폴더를 지정한다
+# (예: \\BACKEND-PC\storeops_output). 백엔드는 같은 폴더를 STOREOPS_OUTPUT_DIR로 읽는다.
+# 사건 JSON(내부 점수 포함)은 항상 이 컴퓨터의 output/events에 남긴다.
+MEDIA_DIR = Path(os.getenv("STOREOPS_OUTPUT_DIR", str(BASE_DIR / "output")))
+CLIP_DIR = MEDIA_DIR / "clips"
 EVENT_DIR = BASE_DIR / "output" / "events"
-IMAGE_DIR = BASE_DIR / "output" / "representative_images"
+IMAGE_DIR = MEDIA_DIR / "representative_images"
 
 # FR-EVT-15
 VLM_MAX_WORKERS = int(os.getenv("VLM_MAX_WORKERS", "2"))

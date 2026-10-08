@@ -3,11 +3,17 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 
+from config.config import MEDIA_DIR
+
 
 def _portable_output_uri(value: str | None) -> str | None:
     """공유 output 경로는 실행 OS가 달라도 컨테이너가 읽을 수 있게 정규화합니다."""
     if not value:
         return value
+    try:   # 저장 폴더(MEDIA_DIR, 공유 폴더일 수 있음) 아래 파일이면 "output/<상대경로>"로 바꾼다. 백엔드는 자기 쪽 폴더 기준으로 읽는다.
+        return "output/" + Path(value).resolve().relative_to(MEDIA_DIR.resolve()).as_posix()
+    except (ValueError, OSError):
+        pass
     normalized = value.replace("\\", "/")
     marker = "/output/"
     if marker in normalized:
@@ -53,7 +59,7 @@ class EventCandidate(BaseModel):
     alert_status: str = "PENDING"
     alert_error: Optional[str] = None
     vlm: Optional[Dict[str, Any]] = None
-    created_at: datetime = Field(default_factory=datetime.now)
+    created_at: datetime = Field(default_factory=lambda: datetime.now().astimezone())   # 시간대 포함. 백엔드는 시간대 없는 값을 UTC로 간주한다
 
     def to_dict(self):
         data = self.model_dump(mode="json")
