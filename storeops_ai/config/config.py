@@ -9,6 +9,27 @@ from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+
+def load_env_file(path: Path) -> None:
+    """storeops_ai/.env가 있으면 읽어 환경변수로 넣는다. 이미 설정된 값은 덮어쓰지 않고, 값이 빈 줄은 건너뛴다.
+
+    도커(compose)는 env_file로 직접 넣어 주므로 이 함수는 python으로 바로 실행할 때만 의미가 있다.
+    비밀(토큰)과 컴퓨터마다 다른 주소·경로를 코드 밖 .env에 두기 위한 것이며 .env는 저장소에 올리지 않는다.
+    """
+    if not path.is_file():
+        return
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        value = value.strip().strip('"').strip("'")
+        if key.strip() and value:
+            os.environ.setdefault(key.strip(), value)
+
+
+load_env_file(BASE_DIR / ".env")
+
 # input 폴더에 새 영상이 들어오면 사람이 API를 호출하지 않아도 자동으로 분석한다.
 INPUT_DIR = Path(os.getenv("AUTO_ANALYSIS_INPUT_DIR", str(BASE_DIR / "input")))
 AUTO_ANALYSIS_POLL_INTERVAL_SEC = float(os.getenv("AUTO_ANALYSIS_POLL_INTERVAL_SEC", "5.0"))
@@ -100,7 +121,7 @@ CAMERA_DISCONNECT_SEC = float(os.getenv("CAMERA_DISCONNECT_SEC", "60.0"))
 # 클립·대표 이미지를 저장하는 곳. 탐지 서비스와 백엔드가 다른 컴퓨터일 때는 백엔드 컴퓨터의 공유 폴더를 지정한다
 # (예: \\BACKEND-PC\storeops_output). 백엔드는 같은 폴더를 STOREOPS_OUTPUT_DIR로 읽는다.
 # 사건 JSON(내부 점수 포함)은 항상 이 컴퓨터의 output/events에 남긴다.
-MEDIA_DIR = Path(os.getenv("STOREOPS_OUTPUT_DIR", str(BASE_DIR / "output")))
+MEDIA_DIR = Path(os.getenv("STOREOPS_OUTPUT_DIR") or str(BASE_DIR / "output"))   # 빈 값이면 기본 폴더
 CLIP_DIR = MEDIA_DIR / "clips"
 EVENT_DIR = BASE_DIR / "output" / "events"
 IMAGE_DIR = MEDIA_DIR / "representative_images"
