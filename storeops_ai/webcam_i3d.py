@@ -5,12 +5,12 @@ StoreOps AI - 학습된 S3D 행동분류 모델 웹캠 테스트
     python webcam_i3d.py
 
 기본:
-    - training/runs/mc_stage2/best.pt 사용
+    - training/runs/ours_a_final(화면 전체)와 ours_c1_final(사람 크롭)을 ours_stack/fusion.json으로 동적 결합해 사용
     - 웹캠 전체 화면을 학습과 동일한 방식으로 입력
     - 3 FPS로 프레임을 버퍼링
-    - 최근 8초를 24프레임으로 균일 샘플링
+    - 최근 4초(12표본)를 24프레임으로 균일 샘플링
     - 2초마다 추론
-    - 0.60 이상이면 EVENT 표시
+    - 카테고리별 임계값(fusion.json에서 정한 값, 환경변수로 덮어쓰기 가능)을 넘으면 EVENT 표시
 
 종료: q 또는 ESC
 """
@@ -141,7 +141,7 @@ def main():
     weight = Path(args.weight)
     if not weight.is_file():
         print(f"[ERROR] 모델 파일이 없습니다: {weight}")
-        print("기본 모델: training/runs/mc_stage2/best.pt")
+        print("기본 모델: training/runs/ours_a_final/best.pt (+ ours_c1_final, ours_stack/fusion.json)")
         return 1
 
     print("=" * 70)

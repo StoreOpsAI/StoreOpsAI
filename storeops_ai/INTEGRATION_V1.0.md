@@ -22,9 +22,11 @@
 | `models/stack_head.py` (신규) | A+C1 동적 결합 `z = (a\|a\| + b\|b\|) / (\|a\| + \|b\|)` (학습 파라미터 없음), 창 안 사람 박스 합집합 크롭 |
 | `models/i3d_classifier.py` | C1 로드, `predict_pair()` |
 | `pipelines/path1_behavior.py` | 사람이 없는 창도 분류, C1 크롭 입력, `risk_level`·`score_logit` 기록 |
+| `pipelines/path1_webcam.py` | 실시간 웹캠 모드에 같은 방식 적용: A+C1 결합, 사람 게이트 제거, 확인 횟수 기본 1 |
 | `schemas/event_schema.py` | `risk_level`, `score_logit` 필드(선택) |
 | `requirements.txt` | `uvicorn[standard]` (WebSocket 사용) |
 | `tests/test_i3d_classifier.py`, `webcam_i3d.py` | 4카테고리 기준, 웹캠 점검 도구 |
+| `README.md`, `WEBCAM_TEST.md` | 카테고리·가중치·환경변수 설명을 우리 모델 기준으로 수정 |
 | `../docker-compose.novlm.yml` (신규) | VLM 없이 `storeops-ai`를 띄우는 덮어쓰기 파일 |
 
 ## 가중치 (저장소에 포함하지 않음)
@@ -52,6 +54,6 @@ docker compose -f docker-compose.yml -f docker-compose.novlm.yml up -d --build
 
 - 3fps로 쌓은 화면을 **2초마다 최근 4초**로 분류합니다. 사람 게이트는 두지 않습니다(쓰러져 추적이 끊긴 사람, 사람이 떠난 직후의 유기를 놓치지 않기 위해).
 - 임계값은 확률이 아니라 점수 기준으로 정했고 `fusion.json`의 로그 오즈를 시그모이드로 환산해 씁니다. 현재 기본: 쓰러짐 4.91, 쓰레기 투기 4.51, 절도 3.28(로그 오즈).
-- **실시간 웹캠 모드(`pipelines/path1_webcam.py`)는 아직 A 단독, 사람 게이트, 3회 연속 확인 방식 그대로입니다.** 이번 변경은 파일 분석 경로(`path1_behavior.py`)에 적용됩니다. 실시간 모드에 같은 결합을 적용하는 작업은 후속입니다(`--confirmations 1`로 연속 확인은 낮출 수 있음).
+- 실시간 웹캠 모드(`pipelines/path1_webcam.py`)도 같은 방식입니다: A+C1 결합, 사람 게이트 없음, 확인 횟수 기본 1(즉시 확정). 연속 확인이 필요하면 `CONFIRMATIONS_REQUIRED=3`처럼 환경변수로 올립니다. 영상 파일을 카메라 대신 넣고 가짜 수신 서버로 사건 전송(Bearer 토큰, 4개 점수, 쿨다운)을 확인했습니다.
 - 평가 한계: 공식 validation을 여러 번 보았으므로 블라인드가 아니며, 새 환경(강의실) 성능은 별도 측정이 필요합니다. 근거와 수치는 연구 저장소의 `행동인식_분석.md`, `의사결정_정리.md` 참고.
 - 검증: 단위 테스트 13개 통과(`PYTHONPATH=.;.. python -m unittest discover -s tests`), 컴포즈 덮어쓰기 파일은 `docker compose config`로 문법 확인. 도커 이미지 빌드와 실제 컨테이너 기동은 확인하지 못했습니다. 도커 이미지는 CPU용 torch라서 CPU 추론 시간(이 PC 기준 모델 2개 합쳐 2초 창당 약 0.6초)을 배포 환경에서 다시 확인해야 합니다.

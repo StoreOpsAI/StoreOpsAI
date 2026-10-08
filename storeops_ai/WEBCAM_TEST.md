@@ -1,13 +1,15 @@
 # 웹캠으로 학습 모델 테스트
 
-이 프로젝트에는 학습 완료된 S3D 행동분류 모델이 포함되어 있습니다.
+이 프로젝트는 학습 완료된 S3D 행동분류 모델 두 개(화면 전체 A, 사람 크롭 C1)를
+동적 결합해 사용합니다(가중치는 저장소에 포함하지 않으며 배치 방법은 `INTEGRATION_V1.0.md` 참고).
 
 기본 모델:
-`training/runs/mc_stage2/best.pt`
+`training/runs/ours_a_final/best.pt` + `training/runs/ours_c1_final/best.pt` +
+`training/runs/ours_stack/fusion.json`
 
-운영 화면은 정상, 쓰러짐, 싸움, 파손, 쓰레기 투기 다섯 점수를 표시합니다. 기존 abandon은 쓰레기 투기 점수로 연결되며, fire/theft 점수는 노출하지 않습니다.
+운영 화면은 정상, 쓰러짐, 쓰레기 투기, 절도 네 점수를 표시합니다. abandon은 쓰레기 투기 점수로 연결됩니다.
 
-현재 체크포인트에는 `fight(싸움)` 학습 클래스가 없으므로 싸움 점수는 0.0이며 이 모델로 싸움 사건을 발급하지 않습니다.
+싸움·파손·방화는 학습하지 않았으므로 점수를 표시하지 않고 사건도 발급하지 않습니다.
 
 ## 1. 프로젝트 루트
 
@@ -45,12 +47,11 @@ python webcam_i3d.py --camera 1
 
 - NORMAL
 - FALL
-- FIGHT (현재 가중치에서는 0.0)
-- BROKEN
 - LITTERING
+- THEFT
 
-기본적으로 8초를 모은 뒤 약 2초마다 추론합니다.
-점수가 0.60을 초과한 비정상 클래스는 `EVENT DETECTED`로 표시합니다.
+기본적으로 학습과 같은 4초를 모은 뒤 약 2초마다 추론합니다.
+카테고리별 임계값(`fusion.json`에서 정한 값)을 넘은 비정상 클래스는 `EVENT DETECTED`로 표시합니다.
 
 ## 5. CPU가 너무 느릴 때
 
@@ -62,11 +63,7 @@ python webcam_i3d.py --camera 1
 python webcam_i3d.py --interval-sec 4
 ```
 
-판정 구간을 10초로 바꾸려면:
-
-```bat
-python webcam_i3d.py --window-sec 10
-```
+판정 구간은 학습과 같은 4초가 기본이며 `--window-sec`로 바꿀 수 있지만, 학습 조건과 달라지므로 권하지 않습니다.
 
 GPU를 사용하는 PC라면 프로젝트 설정의 `I3D_DEVICE=cuda`를 사용할 수 있습니다.
 
