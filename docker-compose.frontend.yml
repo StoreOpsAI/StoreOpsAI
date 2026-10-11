@@ -1,0 +1,12 @@
+# 프런트 PC의 Nginx는 브라우저 요청을 백엔드 FastAPI로 전달합니다.
+services:
+  frontend:
+    build:
+      context: ./frontend
+    restart: unless-stopped
+    environment:
+      BACKEND_UPSTREAM: ${BACKEND_UPSTREAM:?백엔드 Tailscale Serve 주소를 설정하세요}
+    ports:
+      - "127.0.0.1:5173:80"
+    volumes:
+      - ./frontend/nginx.remote.conf.template:/etc/nginx/templates/default.conf.template:ro

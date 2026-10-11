@@ -6,6 +6,7 @@ import os
 import sys
 import time
 from collections import defaultdict, deque
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Optional
 
@@ -49,7 +50,7 @@ from services.realtime import event_hub
 from schemas.event_schema import EventCandidate
 from utils.clip_manager import save_frames, save_representative_images
 from utils.event_manager import EventManager
-from utils.notification import send_first_alert, send_vlm_result
+from utils.notification import send_event_media, send_first_alert, send_vlm_result
 
 logger = logging.getLogger("storeops_ai")
 
@@ -131,6 +132,7 @@ class Path1Webcam:
         self.events_issued = []
         # 사건이 생긴 시점 후 5초가 지나면 전/후 5초 영상을 확정한다.
         self._pending_video_events = []
+        self._media_executor = ThreadPoolExecutor(max_workers=1)
 
         # key=(track scope, category) -> 확인 상태
         self.confirmation_state = {}
@@ -219,6 +221,8 @@ class Path1Webcam:
             save_frames(self._frames_between(pending["start"], end), event.event_video_path, fps)
             updated = self.events.update(event.event_id, event_video_complete=end == pending["end"])
             event_hub.publish("event.updated", updated)
+            # 파일 전송이 웹캠 프레임 수신을 멈추지 않도록 별도 작업자로 보낸다.
+            self._media_executor.submit(send_event_media, event)
         self._pending_video_events = remaining
 
     def _update_confirmation(self, category, confidence, track_ids, current_time):
@@ -709,6 +713,7 @@ class Path1Webcam:
 
         # 사용자가 종료했거나 카메라가 끊겨 후행 5초가 부족하면 incomplete로 확정한다.
         self._finalize_due_event_videos(frame_no, fps, force=True)
+        self._media_executor.shutdown(wait=True)
         cap.release()
         cv2.destroyAllWindows()
         elapsed = max(time.time() - start_clock, 0.001)

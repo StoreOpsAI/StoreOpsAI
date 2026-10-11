@@ -1,6 +1,8 @@
 """메모리 또는 PostgreSQL에 사건과 상태 변경 이력을 보관하는 저장소입니다."""
 
 from datetime import datetime
+import json
+from threading import RLock
 
 from psycopg.types.json import Jsonb
 
@@ -15,6 +17,8 @@ class EventRepository:
         self._events: dict[str, Event] = {}
         self._history: list[EventStatusHistory] = []
         self._next_event_number = 1
+        self._ingest_ids: dict[tuple, str] = {}
+        self._lock = RLock()
 
     def seed(self, events: list[Event]) -> None:
         """개발 및 시연용 초기 사건을 저장합니다."""
@@ -25,18 +29,27 @@ class EventRepository:
     def create(self, event: Event) -> Event:
         """탐지 서비스 사건을 저장하고 동일 ID 재전송은 기존 값으로 처리합니다."""
 
-        existing = self._events.get(event.event_id)
-        if existing is not None:
-            return existing
-        self._events[event.event_id] = event
-        return event
+        # 중복 확인과 저장을 함께 잠가 동시 재전송도 하나의 사건으로 처리한다.
+        with self._lock:
+            key = (event.store_id, event.camera_id, event.event_uid)
+            existing_id = self._ingest_ids.get(key) if event.event_uid else None
+            existing = self._events.get(existing_id or event.event_id)
+            if existing is not None:
+                return existing
+            if not event.event_id:
+                event = event.model_copy(update={'event_id': self.next_event_id()})
+            self._events[event.event_id] = event
+            if event.event_uid:
+                self._ingest_ids[key] = event.event_id
+            return event
 
     def next_event_id(self) -> str:
         """화면에 표시하기 적당한 짧은 자리수로 사건 ID를 발급합니다."""
 
-        event_id = f'E{self._next_event_number:03d}'
-        self._next_event_number += 1
-        return event_id
+        with self._lock:
+            event_id = f'E{self._next_event_number:03d}'
+            self._next_event_number += 1
+            return event_id
 
     def list_events(
         self,
@@ -62,6 +75,20 @@ class EventRepository:
 
         self._events[event_id] = self._events[event_id].model_copy(update={'vlm': vlm})
         return self._events[event_id]
+
+    def update_media(self, event_id: str, media_type: str, uri: str) -> Event:
+        """업로드가 끝난 미디어만 사건에 연결하고 재전송은 같은 항목을 교체합니다."""
+
+        event = self._events[event_id]
+        if media_type == 'clip':
+            event = event.model_copy(update={'clip': EventClip(uri=uri, length_sec=10)})
+        else:
+            images = [item for item in event.representative_images if item.media_type != media_type]
+            images.append(EventMediaReference(media_type=media_type, uri=uri))
+            order = {'frame_start': 0, 'frame_middle': 1, 'frame_end': 2}
+            event = event.model_copy(update={'representative_images': sorted(images, key=lambda item: order[item.media_type])})
+        self._events[event_id] = event
+        return event
 
     def update_status(
         self,
@@ -149,6 +176,21 @@ class PostgresEventRepository:
         """탐지 서비스 사건과 카메라·VLM 기준정보를 한 트랜잭션에 저장합니다."""
 
         with connect() as connection, connection.cursor() as cursor:
+            if event.event_uid:
+                # 같은 식별자의 요청만 직렬화하고 번호 발급 전에 기존 사건을 확인한다.
+                key = json.dumps([event.store_id, event.camera_id, str(event.event_uid)])
+                cursor.execute('SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))', (key,))
+                cursor.execute(
+                    'SELECT event_id FROM events WHERE store_id = %s AND camera_id = %s AND event_uid = %s',
+                    (event.store_id, event.camera_id, event.event_uid),
+                )
+                existing = cursor.fetchone()
+                if existing is not None:
+                    return self.get(existing[0])
+            if not event.event_id:
+                # shortcut: MVP 번호는 3자리이므로 1,000건 전에 번호 발급 정책을 확장한다.
+                cursor.execute("SELECT 'E' || LPAD(nextval('event_number_seq')::text, 3, '0')")
+                event = event.model_copy(update={'event_id': cursor.fetchone()[0]})
             cursor.execute(
                 """
                 INSERT INTO cameras (camera_id, store_id, name, is_connected)
@@ -161,14 +203,14 @@ class PostgresEventRepository:
                 """
                 INSERT INTO events
                     (event_id, store_id, camera_id, source, event_type, occurred_at,
-                    status, scores, threshold, gap_sec, threshold_sec, data_label)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    status, scores, threshold, gap_sec, threshold_sec, data_label, event_uid)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (event_id) DO NOTHING
                 """,
                 (
                     event.event_id, event.store_id, event.camera_id, event.source, event.event_type,
                     event.occurred_at, event.status, Jsonb(event.scores), event.threshold,
-                    event.gap_sec, event.threshold_sec, event.data_label,
+                    event.gap_sec, event.threshold_sec, event.data_label, event.event_uid,
                 ),
             )
             cursor.execute(
@@ -202,6 +244,21 @@ class PostgresEventRepository:
                 """,
                 (event.event_id, media.media_type, media.uri),
             )
+
+    def update_media(self, event_id: str, media_type: str, uri: str) -> Event:
+        """백엔드에 저장된 파일 경로를 사건 미디어 행에 반영합니다."""
+
+        with connect() as connection, connection.cursor() as cursor:
+            cursor.execute(
+                """
+                INSERT INTO event_media (event_id, media_type, uri, length_sec)
+                VALUES (%s, %s, %s, %s)
+                ON CONFLICT (event_id, media_type)
+                DO UPDATE SET uri = EXCLUDED.uri, length_sec = EXCLUDED.length_sec
+                """,
+                (event_id, media_type, uri, 10 if media_type == 'clip' else None),
+            )
+        return self.get(event_id)
 
     def next_event_id(self) -> str:
         """PostgreSQL 시퀀스에서 운영용 사건 ID를 발급합니다."""

@@ -24,7 +24,7 @@ from services.realtime import event_hub
 from schemas.event_schema import EventCandidate
 from utils.clip_manager import save_frames, save_representative_images
 from utils.event_manager import EventManager
-from utils.notification import send_first_alert, send_vlm_result
+from utils.notification import send_event_media, send_first_alert, send_vlm_result
 
 RISK_LEVELS = os.getenv("RISK_LEVELS", "0") == "1"   # 1이면 사건에 위험도 단계(주의/경고/높음)를 붙인다
 logger = logging.getLogger("storeops_ai")
@@ -125,6 +125,7 @@ class Path1BehaviorPipeline:
             event.event_video_complete = available_end == pending["end"]
             updated = self.events.update(event.event_id, event_video_complete=event.event_video_complete)
             event_hub.publish("event.updated", updated)
+            send_event_media(event)
         self._pending_video_events = remaining
 
     def _persist_vlm_result(self, event, future):
