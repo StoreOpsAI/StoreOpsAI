@@ -1,0 +1,56 @@
+{
+ "note": "공식 validation 재사용(2회차 이상): 이전 평가 결과를 본 뒤 설정을 바꾼 모델의 평가이므로 독립 시험이 아니다",
+ "weights": "lying_mlp.pt",
+ "hold_sec": 1.0,
+ "person_val": {
+  "accuracy": 0.9991058408396695,
+  "precision": 0.9527660951148496,
+  "recall": 0.9989823609226595,
+  "f1": 0.9753270409008115,
+  "per_class": {
+   "정상": {
+    "precision": 0.9999816565369988,
+    "recall": 0.9991080646836379,
+    "f1": 0.9995446697327609
+   },
+   "유기": {
+    "precision": 0.9527660951148496,
+    "recall": 0.9989823609226595,
+    "f1": 0.9753270409008115
+   }
+  },
+  "confusion_matrix": [
+   [
+    163543,
+    146
+   ],
+   [
+    3,
+    2945
+   ]
+  ]
+ },
+ "train_person": {
+  "precision": 1.0,
+  "recall": 1.0,
+  "f1": 1.0
+ },
+ "train_val_f1_gap": 0.025,
+ "fall_clips": 81,
+ "normal_clips": 101,
+ "clips_hit": 81,
+ "clip_recall": 1.0,
+ "fp": {
+  "전도 영상 정상": {
+   "false_alarms": 0,
+   "minutes": 51.2,
+   "fp_per_min": 0.0
+  },
+  "매장이동 정상": {
+   "false_alarms": 14,
+   "minutes": 505.6,
+   "fp_per_min": 0.028
+  }
+ },
+ "transition_alarms_not_judged": 0
+}

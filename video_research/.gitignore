@@ -1,0 +1,40 @@
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.env
+.env.*
+
+# Local datasets, generated artifacts, and model weights
+data/
+tmp/
+Ultralytics/
+**/output/
+*.pt
+*.pth
+*.npz
+*.mp4
+# AI Hub 데이터(라벨 포함)는 재배포 금지라 저장소에 올리지 않는다
+방화/
+유기/
+절도/
+파손/
+폭행/
+구매행동/
+
+# Binary reference documents
+*.pdf
+*.docx
+
+# Editor and OS files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+graphy-out/
+
+# Serena MCP
+.serena/
+*.onnx
+# 외부 공개 데이터셋(D-Fire 등)
+datasets/

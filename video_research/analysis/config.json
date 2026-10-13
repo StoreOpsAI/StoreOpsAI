@@ -1,0 +1,12 @@
+{
+  "fps": 3.0,
+  "pose_weights": "weights/yolo11s-pose.pt",
+  "lying_weights": "weights/lying_mlp.pt",
+  "pose_imgsz": 1280,
+  "person_conf": 0.25,
+  "kpt_conf": 0.3,
+  "score_threshold": 0.5,
+  "hold_sec": 1.0,
+  "same_spot_iou": 0.3,
+  "gap_samples": 1
+}

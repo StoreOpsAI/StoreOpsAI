@@ -1,0 +1,53 @@
+{
+ "person_val": {
+  "accuracy": 0.998823790634733,
+  "precision": 0.9387755102040817,
+  "recall": 0.9986431478968792,
+  "f1": 0.967784352399737,
+  "per_class": {
+   "정상": {
+    "precision": 0.9999755353178268,
+    "recall": 0.9988270439675238,
+    "f1": 0.999400959687032
+   },
+   "유기": {
+    "precision": 0.9387755102040817,
+    "recall": 0.9986431478968792,
+    "f1": 0.967784352399737
+   }
+  },
+  "confusion_matrix": [
+   [
+    163497,
+    192
+   ],
+   [
+    4,
+    2944
+   ]
+  ]
+ },
+ "train_person": {
+  "precision": 1.0,
+  "recall": 1.0,
+  "f1": 1.0
+ },
+ "train_val_f1_gap": 0.032,
+ "fall_clips": 81,
+ "normal_clips": 101,
+ "clips_hit": 81,
+ "clip_recall": 1.0,
+ "fp": {
+  "전도 영상 정상": {
+   "false_alarms": 0,
+   "minutes": 51.2,
+   "fp_per_min": 0.0
+  },
+  "매장이동 정상": {
+   "false_alarms": 8,
+   "minutes": 505.6,
+   "fp_per_min": 0.016
+  }
+ },
+ "transition_alarms_not_judged": 0
+}
