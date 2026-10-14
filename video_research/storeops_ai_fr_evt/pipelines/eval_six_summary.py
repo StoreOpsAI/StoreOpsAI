@@ -13,7 +13,7 @@ import numpy as np
 
 from pipelines.eval_finetune import log_odds, per_clip, runs
 from pipelines.eval_six_class import DEFAULT_TARGET, NAMES, TARGET, load, pick
-from pipelines.eval_six_fusion import align, with_score
+from pipelines.eval_six_fusion import align, modes_for, with_score
 from pipelines.oof_search import candidates_from_values
 
 
@@ -45,9 +45,10 @@ def row(d: dict[str, np.ndarray], c: int) -> str:
 
 def main() -> None:
     a_dir, c_dir = os.getenv("EVAL_A_DIR", "finetune_s3d6"), os.getenv("EVAL_C1_DIR", "finetune_s3d_c16")
-    d = align(load(a_dir, []), load(c_dir, []))
+    h_dir = os.getenv("EVAL_H_DIR")
+    d = align(load(a_dir, []), load(c_dir, []), load(h_dir, []) if h_dir else None)
     print(f"A = {a_dir}, C1 = {c_dir}: 창 {len(d['clip'])}개  (이벤트 단위, 엄격, 날짜 5-fold OOF)")
-    f1s = {m: [] for m in ("A", "C1", "A+C1")}
+    f1s = {m: [] for m in modes_for(d)}
     for c in range(1, 6):
         print(f"\n[{NAMES[c]}]")
         for m in f1s:

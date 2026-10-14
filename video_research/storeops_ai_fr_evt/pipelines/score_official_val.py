@@ -15,7 +15,7 @@ import torch
 from pipelines import finetune_s3d as F
 from pipelines.global_split import SPLIT_PATH
 
-OUT = F.APP_ROOT / "output" / "official_val"
+OUT = F.APP_ROOT / "output" / ("official_val_six" if F.SIX else "official_val")   # S3D_CLASSES=6이면 6클래스 최종 모델·별도 폴더
 
 
 def val_rows() -> list[dict]:
@@ -43,8 +43,7 @@ def main() -> None:
         sys.exit(f"이미 채점했습니다: {target}. 공식 validation은 한 번만 평가합니다(다시 하려면 사유를 기록하고 FORCE_REEVAL=1).")
     rows = val_rows()
     print(f"[{F.INPUT}] 공식 validation 클립 {len(set(r['clip'] for r in rows))}개, 창 {len(rows)}개", flush=True)
-    ckpt_dir = "finetune_s3d" if F.INPUT == "full" else f"finetune_s3d_{F.INPUT}"
-    ckpt = torch.load(F.APP_ROOT / "output" / ckpt_dir / "s3d_fold-1.pt", map_location="cpu", weights_only=True)
+    ckpt = torch.load(F.OUT / "s3d_fold-1.pt", map_location="cpu", weights_only=True)
     model = F.make_model()
     model.load_state_dict(ckpt["model"], strict=True)
     device = "cuda" if torch.cuda.is_available() else "cpu"
