@@ -17,12 +17,13 @@ from pipelines.ensemble_eval import merged
 from pipelines.eval_finetune import CLASSES, evaluate, log_odds
 from pipelines.fusion_eval import clips_for
 from pipelines.oof_search import candidates_from_values
+from config.config import SERVICE_STACK_DIR
 
 TARGET = 0.90
 SMOOTH: dict = {}   # 이동 평균 끔(즉시 알림, 사용자 결정 2026-10-07). 켜려면 {1: 3, 2: 3}: 개발 OOF에서 전도 1.89→0.94, 유기 2.60→1.72 오경보/시간, 대신 지연 +4초
 CLASS_TARGET = {1: 0.95}   # 전도만 0.95: 개발 fold별 재현율이 0.86~0.99로 흔들려 새 날짜에서 0.9 아래로 내려오는 것을 막는 여유(가장 낮은 fold 0.86 -> 0.90). 사용자 결정
 SERVICE_KEY = {1: "쓰러짐", 2: "쓰레기 투기", 3: "절도"}
-DIR = Path("C:/Users/user/Desktop/무인 매장 에이전트/storeops_ai/training/runs/ours_stack")
+DIR = SERVICE_STACK_DIR
 
 
 def causal_mean(d: dict, z: np.ndarray, m: int) -> np.ndarray:

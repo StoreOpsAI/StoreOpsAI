@@ -16,9 +16,10 @@ from pipelines.eval_finetune import CLASSES, evaluate
 from pipelines.fusion_eval import clips_for
 from pipelines.export_fusion import causal_mean
 from pipelines.export_stack import fused_z
+from config.config import SERVICE_STACK_DIR
 
 OUT = Path(__file__).resolve().parents[1] / "output" / "official_val"
-STACK = Path("C:/Users/user/Desktop/무인 매장 에이전트/storeops_ai/training/runs/ours_stack/fusion.json")
+STACK = SERVICE_STACK_DIR / "fusion.json"
 SERVICE_KEY = {1: "쓰러짐", 2: "쓰레기 투기", 3: "절도"}
 WIN = 12
 

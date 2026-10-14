@@ -90,8 +90,8 @@
 - 17:18 점검: 돌고 있는 작업 없음. 전도 경보 유지(깜빡임 0, 시작 지연 4~5초), 유기는 컵이 보이는 동안 대체로 유지되나 보장 안 됨(컵① 147-151초·172-176초 점수 급락). 시간 유지(30초) 제안, 사용자 결정 대기.
 
 ## 이어하기 메모 (2026-10-07, 손 크롭 H 본 학습 진행 중)
-- 세션 ID: `9e855557-0318-4634-8d8a-a8cc2c7ec859` (대화 기록: `C:\Users\user\.claude\projects\C--Users-user-Desktop-----------\9e855557-0318-4634-8d8a-a8cc2c7ec859.jsonl`)
-- 세션 이어서 열기: 프로젝트 폴더(`C:\Users\user\Desktop\무인 매장 에이전트`)에서 `claude --resume 9e855557-0318-4634-8d8a-a8cc2c7ec859` (가장 최근 세션이면 `claude --continue`)
+- (로컬 환경의 경로·세션 정보라 공개본에서 삭제함)
+- (로컬 환경의 경로·세션 정보라 공개본에서 삭제함)
 - 30분 점검(cron)은 세션 안에서만 살아 있다: 세션을 다시 열면 점검을 다시 등록해야 한다.
 - 학습 체인: `C:/data/aihub/run_hand_full.sh` (포즈 추출 -> 크롭 캐시 -> H 5-fold + 최종 -> 완료 표시 `C:/data/aihub/hand_crops.done`, `hand_train.done`). 이미 만든 결과는 건너뛰므로 죽었으면 `bash C:/data/aihub/run_hand_full.sh`로 다시 실행.
 - 결과 위치: 포즈 `output/pose_cache/<행동>/train`, 크롭 `C:/data/features/crops_h`, 모델 `output/finetune_s3d_h/`.

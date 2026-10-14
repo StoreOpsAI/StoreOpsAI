@@ -20,10 +20,11 @@ from pipelines.ensemble_eval import merged
 from pipelines.eval_finetune import CLASSES, evaluate
 from pipelines.fusion_eval import clips_for
 from pipelines.oof_search import candidates_from_values
+from config.config import SERVICE_STACK_DIR
 
 TARGET = 0.90
 SERVICE_KEY = {1: "쓰러짐", 2: "쓰레기 투기", 3: "절도"}
-OUT = Path("C:/Users/user/Desktop/무인 매장 에이전트/storeops_ai/training/runs/ours_stack/stack.json")
+OUT = SERVICE_STACK_DIR / "stack.json"
 
 
 def fit_params(x: np.ndarray, y: np.ndarray, epochs: int = 300) -> dict:

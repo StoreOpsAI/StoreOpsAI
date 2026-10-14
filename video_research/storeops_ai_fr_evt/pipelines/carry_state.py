@@ -18,7 +18,7 @@ from pathlib import Path
 
 import numpy as np
 
-from config.config import BEHAVIOR_FEATURE_ROOT
+from config.config import BEHAVIOR_FEATURE_ROOT, AIHUB_ORGANIZED_ROOT
 from pipelines.global_split import SPLIT_PATH
 from pipelines.object_dataset2 import read_boxes
 
@@ -115,7 +115,7 @@ def load_clip(r: dict) -> dict:
         persons.setdefault(int(f), []).append((int(tid), b))
     span = None
     if r["behavior"] in LABEL:
-        gt = read_boxes(Path(f"C:/data/aihub/organized/{r['behavior']}/train/labels/{r['clip']}.xml"), LABEL[r["behavior"]])
+        gt = read_boxes(Path(AIHUB_ORGANIZED_ROOT) / r["behavior"] / "train" / "labels" / f"{r['clip']}.xml", LABEL[r["behavior"]])
         span = (min(gt) - PRE, max(gt) + POST) if gt else None
     return {"r": r, "obj": {k: o[k] for k in ("frame", "box", "conf")}, "persons": persons, "n": int(pz["n_frames"]), "span": span}
 

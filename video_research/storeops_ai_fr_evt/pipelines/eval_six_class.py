@@ -12,6 +12,7 @@
 """
 from __future__ import annotations
 
+import csv
 import glob
 import os
 import sys
@@ -45,6 +46,22 @@ def load(folder: str, folds: list[str]) -> dict[str, np.ndarray]:
 def restrict(d: dict[str, np.ndarray], keep_keys: set[tuple]) -> dict[str, np.ndarray]:
     m = np.array([(c, int(s)) in keep_keys for c, s in zip(d["clip"], d["start"])])
     return {k: v[m] for k, v in d.items()}
+
+
+def intended_normals() -> set[tuple[str, int]]:
+    """검수에서 통과한 정상 창(서기·걷기·빈 배경). 검수 파일이 없으면 예외."""
+    files = [f for f in sorted((APP_ROOT / "output").glob("normal_audit_claude_*.csv")) if f.stem != "normal_audit_claude"]
+    if not files:
+        raise FileNotFoundError("EVAL_NORMAL=audit인데 output/normal_audit_claude_<장소>.csv가 없다")
+    return {(r["clip"], int(r["start"])) for f in files for r in csv.DictReader(open(f, encoding="utf-8")) if r["verdict"] == "pass"}
+
+
+def limit_normals(d: dict[str, np.ndarray], keep: set[tuple[str, int]]) -> dict[str, np.ndarray]:
+    """오경보를 세는 정상 창을 '의도한 정상'(검수 통과 창 + 매장이동)으로 제한한다. 그 밖의 사건 영상 정상 창은 애매(-1)로 빼서 양쪽 모델에 똑같이 적용한다. 양성과 다른 행동 사건 창은 그대로."""
+    out = {k: v.copy() for k, v in d.items()}
+    drop = np.array([lab == 0 and beh != "매장이동" and (c, int(s)) not in keep for lab, beh, c, s in zip(out["label"], out["behavior"], out["clip"], out["start"])])
+    out["label"][drop] = -1
+    return out
 
 
 def pick(clips: list[dict], cand: list[float], target: float):
@@ -115,6 +132,10 @@ def main() -> None:
     folds = [x for x in os.getenv("EVAL_FOLDS", "").split(",") if x]
     primary = os.getenv("EVAL_DIR6", "finetune_s3d6")
     d = load(primary, folds)
+    keep = intended_normals() if os.getenv("EVAL_NORMAL") == "audit" else None
+    if keep is not None:
+        d = limit_normals(d, keep)
+        print(f"EVAL_NORMAL=audit: 오경보를 세는 정상 = 검수 통과 창 {len(keep)}개 중 평가 fold에 있는 것 + 매장이동. 나머지 사건 영상 정상 창은 제외")
     rng = np.random.default_rng(0)
     print(f"[{primary}] 6클래스 A OOF: fold {sorted(set(d['fold'].tolist()))}, 창 {len(d['clip'])}개, 영상 {len(set(d['clip']))}개, 애매 창 {int((d['label'] == -1).sum())}개 제외")
     print("\n[6클래스 A] 이벤트 단위 (대괄호 = 클립 부트스트랩 95% 구간)")
@@ -124,6 +145,8 @@ def main() -> None:
     other = os.getenv("COMPARE_DIR6")
     if other:
         d2 = load(other, folds)
+        if keep is not None:
+            d2 = limit_normals(d2, keep)
         same = {(c, int(s)) for c, s in zip(d["clip"], d["start"])} & {(c, int(s)) for c, s in zip(d2["clip"], d2["start"])}
         a, b = restrict(d, same), restrict(d2, same)
         print(f"\n[정상 구성 비교] 같은 창 {len(a['clip'])}개에서 {primary}(위) 대 {other}(아래), 채택 기준: 오경보 신뢰구간이 겹치지 않을 때만")

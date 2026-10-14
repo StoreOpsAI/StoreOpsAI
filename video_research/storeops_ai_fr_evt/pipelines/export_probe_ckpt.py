@@ -15,8 +15,9 @@ import torch
 from torch import nn
 
 from pipelines.fullscene_probe import load
+from config.config import SERVICE_STACK_DIR
 
-SERVICE_RUN = Path(r"C:\Users\user\Desktop\무인 매장 에이전트\storeops_ai\training\runs\ours_probe_v0")
+SERVICE_RUN = SERVICE_STACK_DIR.parent / "ours_probe_v0"
 
 
 def fit(x: np.ndarray, y: np.ndarray, epochs: int = 300) -> tuple[torch.Tensor, torch.Tensor]:

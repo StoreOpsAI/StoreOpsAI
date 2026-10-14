@@ -4,6 +4,7 @@ FR-EVT-01~04는 기존 구현을 유지하고, FR-EVT-05~16의 기능만 연결�
 모델/학습 가중치는 이 단계에서 사용하지 않는다.
 """
 import os
+from pathlib import Path
 
 # FR-EVT-01~02
 YOLO_MODEL_PATH = os.getenv("YOLO_MODEL_PATH", "yolo11n.pt")
@@ -80,6 +81,8 @@ BROKEN_AFTER_SEC = float(os.getenv("BROKEN_AFTER_SEC", "5"))   # 던진 뒤 이 
 BROKEN_PICK_SEC = float(os.getenv("BROKEN_PICK_SEC", "10"))    # 던지기 전후 이 안에 선반 물건이 치워진 자리
 # 전도 = 누워 있는 사람 분류기(동결 CLIP 이미지 인코더 + 선형), Lafuente-Arroyo 외 ESWA 2022 2단계 방식 응용
 LYING_BACKBONE = os.getenv("LYING_BACKBONE", "openai/clip-vit-base-patch32")
+# 서비스(storeops_ai)의 판정 설정 폴더(fusion.json, stack.json). 기본값은 저장소 루트 기준 상대 경로이고, 폴더 배치가 다르면 환경변수로 지정한다.
+SERVICE_STACK_DIR = Path(os.getenv("SERVICE_STACK_DIR", str(Path(__file__).resolve().parents[2] / "storeops_ai" / "training" / "runs" / "ours_stack")))
 AIHUB_ORGANIZED_ROOT = os.getenv("AIHUB_ORGANIZED_ROOT", "C:/data/aihub/organized")  # 정리된 AI Hub 전도·매장이동 (행동/split/videos|labels)
 LYING_FIRST_PASS_CLIPS = int(os.getenv("LYING_FIRST_PASS_CLIPS", "300"))  # 첫 학습에 쓸 전도 클립 수(날짜 그룹 단위로 채움)
 LYING_TRANSITION_FRAMES = int(os.getenv("LYING_TRANSITION_FRAMES", "15"))  # 전도 시작 앞뒤(3fps 15프레임=5초)는 전환 구간이라 학습·평가에서 뺀다(사전 값)

@@ -14,9 +14,10 @@ from pipelines.ensemble_eval import merged
 from pipelines.eval_finetune import CLASSES, evaluate
 from pipelines.fusion_eval import clips_for
 from pipelines.oof_search import candidates_from_values
+from config.config import SERVICE_STACK_DIR
 
 BUDGET_PER_HOUR = 10 / 24
-STACK = Path("C:/Users/user/Desktop/무인 매장 에이전트/storeops_ai/training/runs/ours_stack/stack.json")
+STACK = SERVICE_STACK_DIR / "stack.json"
 KEY = {"전도": "쓰러짐", "유기": "쓰레기 투기", "절도": "절도"}
 
 
