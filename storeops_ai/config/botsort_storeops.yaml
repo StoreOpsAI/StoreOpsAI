@@ -1,0 +1,13 @@
+# BoT-SORT + ReID (Aharon et al. 2022, arXiv 2206.14651). 근거·변경점은 행동인식_분석.md "추적 번호 유지" 절.
+tracker_type: botsort
+track_high_thresh: 0.25   # 울트라리틱스 기본값(추적은 학습 때와 같게 유지, 사람 임계값 0.6은 선택 단계에서 적용)
+track_low_thresh: 0.1     # 울트라리틱스 기본값
+new_track_thresh: 0.25    # 울트라리틱스 기본값
+track_buffer: 30          # 논문 값 30프레임(30fps에서 1초). 앉았다 일어남은 더 길어 실측으로 정한다(tools/measure_track_fragments.py)
+match_thresh: 0.8
+fuse_score: True
+gmc_method: sparseOptFlow
+proximity_thresh: 0.5     # 논문 θ_iou = 0.5
+appearance_thresh: 0.25   # 논문 θ_emb = 0.25 (코사인 거리)
+with_reid: True
+model: auto               # 탐지 모델 특징을 그대로 써서 GPU 모델을 더 올리지 않는다

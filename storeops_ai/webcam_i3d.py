@@ -226,6 +226,13 @@ def main():
                 break
 
             now = time.time()
+            person_boxes = []
+            if detector is not None:
+                result = detector.track(frame)
+                if result.boxes is not None:
+                    boxes = result.boxes.xyxy.cpu().numpy().tolist()
+                    ids = result.boxes.id.cpu().numpy().tolist() if result.boxes.id is not None else [-1] * len(boxes)
+                    person_boxes = [(int(track_id), box) for track_id, box in zip(ids, boxes)]
 
             # 3fps 버퍼링
             if now - last_sample_time >= sample_interval:
@@ -234,8 +241,7 @@ def main():
                     writer = cv2.VideoWriter(str(rec_dir / f"{stamp}.mp4"), cv2.VideoWriter_fourcc(*"mp4v"), args.buffer_fps, (frame.shape[1], frame.shape[0]))
                 writer.write(frame)
                 if detector is not None:
-                    r = detector.track(frame)
-                    box_buffer.append([(int(i), b) for b, i in zip(r.boxes.xyxy.cpu().numpy().tolist(), (r.boxes.id.cpu().numpy() if r.boxes.id is not None else [])) if i >= 0])
+                    box_buffer.append([(track_id, box) for track_id, box in person_boxes if track_id >= 0])
                 buffer_times.append(now)
                 last_sample_time = now
 
@@ -288,6 +294,12 @@ def main():
                 held = active_cat is not None
             else:
                 category, confidence, scores, held = None, 0.0, {}, False
+
+            for track_id, box in person_boxes:
+                x1, y1, x2, y2 = map(int, box)
+                cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                label = f"Person ID:{track_id}" if track_id >= 0 else "Person"
+                cv2.putText(frame, label, (x1, max(20, y1 - 8)), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 255, 0), 2)
 
             frame = draw_score_panel(
                 frame, scores, category, confidence,

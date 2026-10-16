@@ -1,5 +1,7 @@
 import json
 import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 from schemas.event_schema import EventCandidate
@@ -15,6 +17,41 @@ def make_event() -> EventCandidate:
 
 
 class AlertPayloadTest(unittest.TestCase):
+    def test_event_uid_is_stable_for_retries(self):
+        event = make_event()
+        restored = EventCandidate.model_validate_json(json.dumps(event.to_dict()))
+        self.assertEqual(restored.event_uid, event.event_uid)
+        self.assertNotEqual(make_event().event_uid, event.event_uid)
+
+    def test_remote_media_upload(self):
+        sent = []
+
+        class FakeResponse:
+            def __enter__(self): return self
+            def __exit__(self, *args): return False
+            def read(self): return b'{}'
+
+        def fake_urlopen(request, timeout=None):
+            sent.append((request.full_url, request.data.read()))
+            return FakeResponse()
+
+        with TemporaryDirectory() as directory:
+            video = Path(directory) / "clip.mp4"
+            image = Path(directory) / "frame.jpg"
+            video.write_bytes(b"\x00\x00\x00\x18ftypisomtest")
+            image.write_bytes(b"\xff\xd8test")
+            event = make_event()
+            event.backend_event_id = "E010"
+            event.event_video_path = str(video)
+            event.representative_images = [str(image)]
+            with patch.dict("os.environ", {"STOREOPS_MEDIA_UPLOAD_ENABLED": "1", "EVENT_INGEST_TOKEN": "test-token"}), \
+                    patch.object(notification, "ALERT_WEBHOOK_URL", "https://backend/api/internal/events"), \
+                    patch.object(notification, "urlopen", fake_urlopen):
+                self.assertIsNone(notification.alert_payload(event)["event_video_path"])
+                self.assertEqual(notification.alert_payload(event)["representative_images"], [])
+                self.assertTrue(notification.send_event_media(event))
+        self.assertEqual([url.rsplit("/", 1)[-1] for url, _ in sent], ["clip", "frame_start"])
+
     def test_internal_scores_are_not_sent_to_owner(self):
         payload = notification.alert_payload(make_event())
         for key in notification.ALERT_INTERNAL_FIELDS:

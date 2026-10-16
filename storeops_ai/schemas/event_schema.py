@@ -1,4 +1,5 @@
 from datetime import datetime
+from uuid import UUID, uuid4
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
@@ -24,6 +25,7 @@ class EventCandidate(BaseModel):
     카메라 끊김 사건: 영상과 점수는 비워 두고 disconnect 정보만 사용
     """
     event_id: str = Field(..., pattern=r"^E\d{3}$")
+    event_uid: UUID = Field(default_factory=uuid4)
     backend_event_id: Optional[str] = None
     camera_id: str
     event_type: str

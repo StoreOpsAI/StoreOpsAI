@@ -6,6 +6,7 @@ import os
 import sys
 import time
 from collections import defaultdict, deque
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Optional
 
@@ -24,7 +25,10 @@ from config.config import (
     CLIP_MAX_SEC,
     CLIP_MIN_SEC,
     CLIP_DIR,
-    EVENT_COOLDOWN_SEC,
+    PERSON_TOP_K, PERSON_MERGE_IOU, PERSON_EDGE_MARGIN, PERSON_MIN_CONF,
+    STATIC_OBJECT_ENABLED, STATIC_ABANDONED_CATEGORIES, STATIC_REMOVED_CATEGORIES, STATIC_SCALE, STATIC_PROC_FPS, STATIC_LONG_PERIOD_SEC,
+    STATIC_RATIO, STATIC_MAX_EVIDENCE, STATIC_DECAY, STATIC_LONG_ALPHA, STATIC_MIN_AREA_FRAC, STATIC_HOLD_SEC,
+    STATIC_PERSON_PAD, STATIC_GROW_TOL, STATIC_SIMILAR_RATIO, STATIC_PENDING_SEC, STATIC_OWNER_SEC, STATIC_OWNER_RADIUS, STATIC_WRIST_CONF, STATIC_DEPART_SEC,
     EVENT_DIR,
     EVENT_VIDEO_SEC,
     EVENT_VIDEO_PRE_SEC,
@@ -45,11 +49,14 @@ from models.i3d_classifier import I3DClassifier
 from models.stack_head import largest_person_boxes, union_crop
 from models.vlm_analyzer import VLMAnalyzer
 from models.yolo_detector import YOLODetector
+from utils.person_filter import select_people
+from utils.static_object import StaticObjectDetector
 from services.realtime import event_hub
 from schemas.event_schema import EventCandidate
 from utils.clip_manager import save_frames, save_representative_images
 from utils.event_manager import EventManager
-from utils.notification import send_first_alert, send_vlm_result
+from utils.notification import send_event_media, send_first_alert, send_vlm_result
+from webcam_i3d import draw_score_panel
 
 logger = logging.getLogger("storeops_ai")
 
@@ -80,9 +87,9 @@ class Path1Webcam:
 
     이번 버전의 핵심 변경:
       1. 단 한 번의 S3D 오인식으로 E001을 만들지 않는다.
-      2. 동일 category + 동일 track scope가 3회 연속 임계값 이상일 때만 이벤트 생성.
+      2. 동일 category가 추적 번호와 무관하게 N회 연속 임계값 이상일 때만 이벤트 생성.
       3. 중간에 다른 category/정상이 나오면 확인 횟수를 리셋한다.
-      4. 기존 EVENT_COOLDOWN_SEC도 그대로 적용해 같은 사건의 중복 발급을 막는다.
+      4. 같은 사람(추적 번호) + 같은 행동은 그 사람이 사라지거나 행동이 바뀔 때까지 다시 발급하지 않는다.
       5. 프로젝트 루트를 sys.path에 넣어 직접 실행 시 `No module named config`를 방지한다.
     """
 
@@ -127,10 +134,22 @@ class Path1Webcam:
             maxlen=max(30, int(EVENT_VIDEO_SEC * 30.0) + 30)
         )
 
-        self.last_event = {}
+        # 이미 발급한 (추적 번호, 행동). 사람이 사라지거나 행동이 바뀌면 해제한다.
+        self.issued_active = set()
+        self.latest_keypoints = {}   # 추적 번호 -> (관절 좌표, 신뢰도). 관절 헤드가 생기면 쓴다
+        self.wrist_trail = deque()   # (시각, [(번호, 손목 x, y, 반경)]): 물건 영역의 주인을 찾으려고 최근 것만 둔다
+        self._region_printed_at = -1e9
+        self.last_seen = {}   # 추적 번호 -> 마지막으로 보인 시각(주인이 떠났는지 판단)
+        self.pending = {}   # 물건 확인을 기다리는 후보: 행동 -> (후보 시각, _issue 인자)
+        self.static_objects = StaticObjectDetector(
+            STATIC_SCALE, STATIC_PROC_FPS, STATIC_LONG_PERIOD_SEC, STATIC_LONG_ALPHA, STATIC_RATIO,
+            STATIC_MAX_EVIDENCE, STATIC_DECAY, STATIC_MIN_AREA_FRAC, STATIC_HOLD_SEC, STATIC_PERSON_PAD,
+            STATIC_GROW_TOL, STATIC_SIMILAR_RATIO,
+        ) if STATIC_OBJECT_ENABLED else None
         self.events_issued = []
         # 사건이 생긴 시점 후 5초가 지나면 전/후 5초 영상을 확정한다.
         self._pending_video_events = []
+        self._media_executor = ThreadPoolExecutor(max_workers=1)
 
         # key=(track scope, category) -> 확인 상태
         self.confirmation_state = {}
@@ -219,6 +238,7 @@ class Path1Webcam:
             save_frames(self._frames_between(pending["start"], end), event.event_video_path, fps)
             updated = self.events.update(event.event_id, event_video_complete=end == pending["end"])
             event_hub.publish("event.updated", updated)
+            self._media_executor.submit(send_event_media, event)
         self._pending_video_events = remaining
 
     def _update_confirmation(self, category, confidence, track_ids, current_time):
@@ -235,7 +255,7 @@ class Path1Webcam:
             return False, 0, self.confirmations_required
 
         threshold = CATEGORY_THRESHOLDS.get(category, 1.0)
-        scope = tuple(sorted(set(track_ids))) if track_ids else ("scene",)
+        scope = ("scene",)   # 행동 인식이 목적이라 추적 번호가 바뀌어도 연속 확인은 이어 간다
 
         # 임계값 미만이면 단발성/약한 분류로 보고 streak를 끊는다.
         if confidence <= threshold:
@@ -344,6 +364,31 @@ class Path1Webcam:
         print(f"        CLIP: {clip_path}")
         return event
 
+    @staticmethod
+    def _gate_kind(category):
+        return "abandoned" if category in STATIC_ABANDONED_CATEGORIES else "removed" if category in STATIC_REMOVED_CATEGORIES else None
+
+    def _object_ready(self, kind, t):
+        """물건 확인이 있고, 그 물건 영역에 가장 가까웠던 손목의 주인이 떠났을 때만 참이다(주인이 아직 화면에 있으면 기다린다)."""
+        static = self.static_objects
+        if static is None or not static.recently_flagged(t, kind):
+            return False
+        owner = static.owner.get(kind)
+        return owner is None or t - self.last_seen.get(owner, -1e9) >= STATIC_DEPART_SEC
+
+    def _release_pending(self, t):
+        """모델이 먼저 이상으로 본 후보에 물건 확인이 뒤늦게 오면 경보를 낸다. 시간이 지난 후보는 버린다."""
+        events = []
+        for category, (since, args) in list(self.pending.items()):
+            if t - since > STATIC_PENDING_SEC:
+                del self.pending[category]
+            elif self._object_ready(self._gate_kind(category), t):
+                del self.pending[category]
+                event = self._issue(*args, _release=True)
+                if event:
+                    events.append(event)
+        return events
+
     def _issue(
         self,
         category,
@@ -355,9 +400,25 @@ class Path1Webcam:
         fps,
         start_frame,
         end_frame,
+        _release=False,
     ):
-        """임계값 + 연속 확인 + cooldown을 모두 통과했을 때만 이벤트를 만든다."""
+        """임계값 + 연속 확인 + 같은 사람·행동 중복 금지를 모두 통과했을 때만 이벤트를 만든다."""
         end_time = end_frame / fps
+        ids = list(track_ids) or ["scene"]   # 추적된 사람이 없어도 같은 장면의 같은 행동은 한 번만
+
+        # 사람이 화면에서 사라졌거나 행동이 바뀌면 발급 기록을 푼다.
+        if not _release:
+            self.issued_active = {k for k in self.issued_active if k[0] in ids and k[1] == category}
+        # 유기는 새로 멈춘 물건 영역이 최근에 확인됐을 때만 경보한다.
+        static = getattr(self, "static_objects", None)
+        kind = self._gate_kind(category)
+        if kind and static is not None and not _release and not self._object_ready(kind, end_time):
+            # 물건 확인이 나중에 오는 경우가 많아(증거를 쌓는 시간) 후보로 보류했다가 확인이 오면 내보낸다.
+            self.pending[category] = (end_time, (category, confidence, scores, track_ids, clip_frames, event_frames,
+                                                 fps, start_frame, end_frame))
+            if self.debug:
+                print(f"[물건 확인 대기] {category} {'새로 놓인' if kind == 'abandoned' else '없어진'} 물건 확인을 기다림 (최대 {STATIC_PENDING_SEC:.0f}s)")
+            return None
 
         confirmed, count, required = self._update_confirmation(
             category,
@@ -375,18 +436,12 @@ class Path1Webcam:
         if not confirmed:
             return None
 
-        scope = tuple(sorted(track_ids)) if track_ids else ("scene",)
-        key = (scope, category)
-        last = self.last_event.get(key)
-        if last is not None and end_time - last < EVENT_COOLDOWN_SEC:
+        new_ids = [t for t in ids if (t, category) not in self.issued_active]
+        if not new_ids:
             if self.debug:
-                print(
-                    f"[중복 방지] {category} event cooldown "
-                    f"{end_time - last:.1f}/{EVENT_COOLDOWN_SEC:.1f}s"
-                )
+                print(f"[중복 방지] {category} tracks={track_ids} 이미 발급됨")
             return None
-
-        self.last_event[key] = end_time
+        self.issued_active.update((t, category) for t in new_ids)
 
         return self._make_event(
             category,
@@ -409,7 +464,7 @@ class Path1Webcam:
             cv2.rectangle(out, (x1, y1), (x2, y2), (0, 255, 0), 2)
             cv2.putText(
                 out,
-                f"ID:{tid} Person {conf:.2f}",
+                f"{'ID:' + str(tid) + ' ' if tid >= 0 else ''}Person {conf:.2f}",
                 (x1, max(20, y1 - 8)),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.55,
@@ -417,53 +472,15 @@ class Path1Webcam:
                 2,
             )
 
-        y = 28
-        if latest:
-            cv2.putText(
-                out,
-                f"S3D: {latest['category']} {latest['confidence']:.2f}",
-                (10, y),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.75,
-                (0, 255, 255),
-                2,
-            )
-            y += 28
-
-            for k, v in latest["scores"].items():
-                cv2.putText(
-                    out,
-                    f"{k}: {v:.2f}",
-                    (10, y),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.48,
-                    (255, 255, 255),
-                    1,
-                )
-                y += 20
-
-            if latest.get("category") not in ("정상", "판정 보류"):
-                y += 3
-                cv2.putText(
-                    out,
-                    f"EVENT CONFIRM: {latest.get('confirm_count', 0)}"
-                    f"/{self.confirmations_required}",
-                    (10, y),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.55,
-                    (0, 200, 255),
-                    2,
-                )
-        else:
-            cv2.putText(
-                out,
-                "S3D: collecting video...",
-                (10, y),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.65,
-                (0, 255, 255),
-                2,
-            )
+        draw_score_panel(
+            out,
+            latest["scores"] if latest else {},
+            latest["category"] if latest else None,
+            latest["confidence"] if latest else 0.0,
+            None,
+            self.i3d.is_ready,
+            self.i3d.meta,
+        )
 
         cv2.putText(
             out,
@@ -534,7 +551,7 @@ class Path1Webcam:
         print(f"[모드] {self.mode} (full 권장)")
         print(
             f"[이벤트 방지] 임계값 + {self.confirmations_required}회 연속 확인 "
-            f"+ cooldown {EVENT_COOLDOWN_SEC:.1f}s"
+            f"+ 같은 사람·행동 재발급 금지"
         )
 
         while True:
@@ -548,12 +565,36 @@ class Path1Webcam:
             self._finalize_due_event_videos(frame_no, fps)
 
             result = self.detector.track(frame)
-            detections = []
+            self.latest_keypoints = self.detector.keypoints_by_track(result)
+            display_detections = []
             if result.boxes is not None and len(result.boxes) > 0:
                 for i in range(len(result.boxes)):
-                    d = self._box(result, i)
+                    display_detections.append(self._box(result, i))
+            detections = select_people(
+                [d for d in display_detections if d[0] >= 0], frame.shape, PERSON_EDGE_MARGIN, PERSON_MERGE_IOU, PERSON_TOP_K, PERSON_MIN_CONF,
+            )
+            tracked = [d for d in display_detections if d[0] >= 0]   # C1 입력용: 학습과 같게 추적된 모든 사람 박스
+            if self.static_objects is not None:
+                now = frame_no / fps
+                for d in display_detections:
                     if d[0] >= 0:
-                        detections.append(d)
+                        self.last_seen[d[0]] = now
+                heights = {d[0]: d[4] - d[2] for d in display_detections if d[0] >= 0}
+                points = [(tid, float(xy[w][0]), float(xy[w][1]), STATIC_OWNER_RADIUS * heights[tid])
+                          for tid, (xy, cf) in self.latest_keypoints.items() if tid in heights and cf is not None
+                          for w in (9, 10) if cf[w] >= STATIC_WRIST_CONF]   # COCO 9·10 = 왼·오른 손목
+                self.wrist_trail.append((now, points))
+                while self.wrist_trail and now - self.wrist_trail[0][0] > STATIC_OWNER_SEC:
+                    self.wrist_trail.popleft()
+                trail = [p for _, pts in self.wrist_trail for p in pts] if now >= self.static_objects.next_proc else None
+                self.static_objects.update(frame, now, [d[1:5] for d in display_detections], trail)
+                region = self.static_objects.last_region
+                if self.debug and region and region["t"] == now and now - self._region_printed_at >= 1.0:
+                    self._region_printed_at = now
+                    dist = "손목 없음" if region["dist"] is None else f"손목 번호={region['tid']} 거리={region['dist']:.0f}px 반경={region['r']:.0f}px 비율={region['dist'] / region['r']:.2f}"
+                    print(f"[물건 영역] t={now:.1f}s {region['kind']} 영역={region['box']} {dist} 주인 인정={'예' if region['ok'] else '아니오'}")
+                for released in self._release_pending(frame_no / fps):
+                    self._queue_event_video(released, frame_no, fps)
 
             # Track별 버퍼
             for tid, x1, y1, x2, y2, conf in detections:
@@ -570,7 +611,7 @@ class Path1Webcam:
             # S3D용 장면 프레임은 3fps 등 I3D_BUFFER_FPS에 맞춰 샘플링한다.
             if frame_no % sample_every == 0:
                 self.scene_frames.append((frame_no, frame.copy()))
-                self.window_boxes.append((frame_no, [(d[0], d[1:5]) for d in detections]))
+                self.window_boxes.append((frame_no, [(d[0], d[1:5]) for d in tracked]))
 
             # ------------------------------------------------------------------
             # full 모드: 학습 때와 동일하게 화면 전체를 S3D에 넣는다.
@@ -591,7 +632,7 @@ class Path1Webcam:
 
                         # 이벤트 확인 횟수를 화면에도 표시한다.
                         if category not in ("정상", "판정 보류"):
-                            scope = tuple(sorted(set(tids))) if tids else ("scene",)
+                            scope = ("scene",)
                             state = self.confirmation_state.get((scope, category))
                             confirm_count = state["count"] if state else 0
                         else:
@@ -607,7 +648,8 @@ class Path1Webcam:
                         if self.debug:
                             print(
                                 f"[S3D] t={current_time:.1f}s "
-                                f"{category} {confidence:.3f} tracks={tids}"
+                                f"{category} {confidence:.3f} tracks={tids} "
+                                f"점수={ {k: round(v, 3) for k, v in scores.items()} }"
                             )
 
                         # 이벤트 후보용 2~4초 클립
@@ -698,8 +740,8 @@ class Path1Webcam:
                     if event:
                         self._queue_event_video(event, frame_no, fps)
 
-            annotated = self._draw(frame, detections, latest)
-            cv2.imshow("StoreOps AI - Path1 Webcam", annotated)
+            annotated = self._draw(frame, display_detections, latest)
+            cv2.imshow("StoreOps AI - WebCam", annotated)
 
             key = cv2.waitKey(1) & 0xFF
             if key in (27, ord("q"), ord("Q")):
@@ -709,6 +751,7 @@ class Path1Webcam:
 
         # 사용자가 종료했거나 카메라가 끊겨 후행 5초가 부족하면 incomplete로 확정한다.
         self._finalize_due_event_videos(frame_no, fps, force=True)
+        self._media_executor.shutdown(wait=True)
         cap.release()
         cv2.destroyAllWindows()
         elapsed = max(time.time() - start_clock, 0.001)

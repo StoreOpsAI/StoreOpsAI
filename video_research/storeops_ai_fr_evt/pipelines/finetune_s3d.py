@@ -42,7 +42,7 @@ POST_EVENT_MARGIN = int(os.getenv("POST_EVENT_MARGIN", "0"))   # >0이면 사건
 AUDIT_NORMALS = os.getenv("AUDIT_NORMALS") == "1"   # 1이면 사건 영상의 사건 밖 창은 output/normal_audit_claude_*.csv에서 통과(pass)한 창만 정상으로 쓴다(Claude 시각 검수, 사람 검수 아님)
 SITE_FOLDS = os.getenv("SITE_FOLDS") == "1"   # 1이면 fold = 촬영 장소(7곳): 장소 하나를 통째로 빼고 학습해 장소 지름길을 평가한다(--fold 0~6)
 SIX = os.getenv("S3D_CLASSES", "4") == "6"   # 6이면 정상 + 전도·유기·절도·파손·방화 6클래스(반품은 정상 풀에서 뺀다). 결과는 *6 폴더에 따로 저장
-OUT = APP_ROOT / "output" / (("finetune_s3d" if INPUT == "full" else f"finetune_s3d_{INPUT}") + ("6" if SIX else "") + (f"_pre{PRE_EVENT_MARGIN}" if PRE_EVENT_MARGIN else "") + (f"_post{POST_EVENT_MARGIN}" if POST_EVENT_MARGIN else "") + ("_audit" if AUDIT_NORMALS else "") + ("_site" if SITE_FOLDS else ""))
+OUT = APP_ROOT / "output" / (("finetune_s3d" if INPUT == "full" else f"finetune_s3d_{INPUT}") + ("6" if SIX else "") + (f"_pre{PRE_EVENT_MARGIN}" if PRE_EVENT_MARGIN else "") + (f"_post{POST_EVENT_MARGIN}" if POST_EVENT_MARGIN else "") + ("_audit" if AUDIT_NORMALS else "") + ("_site" if SITE_FOLDS else "") + (f"_{os.getenv('S3D_TAG')}" if os.getenv("S3D_TAG") else ""))   # S3D_TAG: 같은 설정의 다른 실험을 별도 폴더에 저장
 WIN, NUM_FRAMES, SIZE = 12, 24, 224
 TARGET_POS = 3000  # 사용자 지정: 행동마다 양성 창 3,000개
 MEAN = np.array([0.43216, 0.394666, 0.37645], np.float32)
@@ -249,7 +249,12 @@ def run_fold(fold: int, args) -> None:
     rows = build_index()
     selected = select_clips(rows)
     device = "cuda"
-    model = make_model().to(device)
+    model = make_model()
+    if args.init_from:   # 이어서 학습: 같은 fold의 체크포인트에서 시작한다(다른 fold·최종 모델에서 가져오면 보류 fold를 이미 본 가중치라 OOF가 오염된다)
+        src = APP_ROOT / "output" / args.init_from / f"s3d_fold{fold}.pt"
+        model.load_state_dict(torch.load(src, map_location="cpu", weights_only=True)["model"], strict=True)
+        print(f"초기값: {src}", flush=True)
+    model = model.to(device)
     backbone = [p for n, p in model.named_parameters() if not n.startswith("classifier")]
     opt = torch.optim.AdamW([{"params": backbone, "lr": args.lr}, {"params": model.classifier.parameters(), "lr": args.lr * 10}], weight_decay=1e-4)
     rng, scaler = random.Random(fold), torch.amp.GradScaler()
@@ -268,6 +273,9 @@ def run_fold(fold: int, args) -> None:
             total += loss.item()
             if step % 50 == 0:
                 print(f"fold {fold} epoch {epoch + 1}/{args.epochs} step {step} loss {loss.item():.4f}", flush=True)
+            if args.max_steps and step + 1 >= args.max_steps:
+                print(f"--max-steps {args.max_steps}: 점검용 실행이라 여기서 멈춘다(저장·채점 없음)", flush=True)
+                return
         sched.step()
         print(f"fold {fold} epoch {epoch + 1} 평균 loss {total / max(step + 1, 1):.4f} (창 {len(items)}개)", flush=True)
     OUT.mkdir(parents=True, exist_ok=True)
@@ -288,6 +296,8 @@ def main() -> None:
     parser.add_argument("--batch", type=int, default=8)
     parser.add_argument("--lr", type=float, default=1e-4, help="백본 학습률(분류 층은 10배)")
     parser.add_argument("--workers", type=int, default=6)
+    parser.add_argument("--init-from", default="", help="이어서 학습할 output 하위 폴더(같은 fold 체크포인트를 읽음). 비우면 Kinetics 초기값")
+    parser.add_argument("--max-steps", type=int, default=0, help="점검용: 이 스텝 수만 돌리고 저장·채점 없이 끝낸다")
     args = parser.parse_args()
     torch.manual_seed(0), random.seed(0), np.random.seed(0)
     torch.cuda.set_per_process_memory_fraction(float(os.getenv("GPU_MEM_FRACTION", "0.4")))  # 다른 GPU 작업(탐지기 학습·시연)과 나눠 쓰기 위한 VRAM 상한

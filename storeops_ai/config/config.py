@@ -16,7 +16,7 @@ AUTO_ANALYSIS_DEFAULT_CAMERA_ID = os.getenv("AUTO_ANALYSIS_DEFAULT_CAMERA_ID", "
 
 
 # FR-EVT-01~02
-YOLO_MODEL_PATH = os.getenv("YOLO_MODEL_PATH", "yolo11n.pt")
+YOLO_MODEL_PATH = os.getenv("YOLO_MODEL_PATH", "yolo11s-pose.pt")   # 사람 박스·추적·관절을 한 번에(2026-10-15 사용자 결정). 이전 YOLO11n은 환경변수로 되돌릴 수 있다
 TRACKER_CONFIG = os.getenv("TRACKER_CONFIG", "bytetrack.yaml")
 CONF_THRESHOLD = float(os.getenv("CONF_THRESHOLD", "0.25"))
 PERSON_CLASS_ID = 0
@@ -83,6 +83,32 @@ if I3D_INFER_INTERVAL_SEC <= 0:
 # 학습 영상이 3fps였으므로 분류용 버퍼도 이 속도로 쌓는다.
 I3D_BUFFER_FPS = float(os.getenv("I3D_BUFFER_FPS", "3.0"))
 # 같은 카테고리 사건 재발급 금지 시간(초). 윈도우가 30초면 같은 사건이 여러 번 윈도우에 걸린다.
+# 행동 판정에 쓸 사람: 전신이 보이는 사람만(화면 가장자리에 안 닿음), 많이 겹친 박스는 한 명, 큰 순서로 상위 K명(사용자 결정 2026-10-15).
+PERSON_TOP_K = int(os.getenv("PERSON_TOP_K", "3"))
+PERSON_MIN_CONF = float(os.getenv("PERSON_MIN_CONF", "0.6"))          # BoT-SORT 논문 기본 검출 임계값 τ=0.6. 선택 단계에만 쓴다(C1 입력은 학습과 같은 규칙으로 모든 사람 박스를 쓴다)
+PERSON_MERGE_IOU = float(os.getenv("PERSON_MERGE_IOU", "0.7"))        # YOLO NMS 기본 IoU 0.7(울트라리틱스). 직접 근거는 약함 — 재검토
+PERSON_EDGE_MARGIN = float(os.getenv("PERSON_EDGE_MARGIN", "0.01"))   # 논문에 없음 — 재검토
+# 새로 멈춘 물건 영역 확인(유기). Porikli 외 2008 이중 전경. 근거 논문 값은 행동인식_분석.md 참조.
+STATIC_OBJECT_ENABLED = os.getenv("STATIC_OBJECT_ENABLED", "1") == "1"
+STATIC_ABANDONED_CATEGORIES = set(os.getenv("STATIC_ABANDONED_CATEGORIES", "쓰레기 투기").split(","))   # 새로 놓인 물건이 있어야 경보
+STATIC_REMOVED_CATEGORIES = set(os.getenv("STATIC_REMOVED_CATEGORIES", "절도").split(","))               # 물건이 없어져야 경보
+STATIC_SCALE = float(os.getenv("STATIC_SCALE", "0.25"))                      # 논문: 4분의 1 해상도
+STATIC_PROC_FPS = float(os.getenv("STATIC_PROC_FPS", "5.0"))                 # 논문: 짧은 배경 5fps
+STATIC_LONG_PERIOD_SEC = float(os.getenv("STATIC_LONG_PERIOD_SEC", "5.0"))   # 논문: 긴 배경 5초마다 갱신
+STATIC_RATIO = float(os.getenv("STATIC_RATIO", "30"))                        # 논문: 짧은 배경 학습률 = 긴 배경의 30배
+STATIC_MAX_EVIDENCE = int(os.getenv("STATIC_MAX_EVIDENCE", "50"))            # 논문 범위 [50,500]프레임, 전형 300(30fps에서 약 10초)을 5fps 처리 기준 10초로 환산
+STATIC_DECAY =float(os.getenv("STATIC_DECAY", "1"))                         # 논문 실험값 k=1
+STATIC_LONG_ALPHA = float(os.getenv("STATIC_LONG_ALPHA", "0.002"))           # 논문에 없음 — 측정으로 재검토
+STATIC_MIN_AREA_FRAC = float(os.getenv("STATIC_MIN_AREA_FRAC", "0.0005"))    # 논문에 없음 — 측정으로 재검토
+STATIC_HOLD_SEC = float(os.getenv("STATIC_HOLD_SEC", "30.0"))                # 논문에 없음 — 측정으로 재검토
+STATIC_OWNER_SEC = float(os.getenv("STATIC_OWNER_SEC", "20.0"))              # 물건 영역 근처에 사람이 있었는지 볼 과거 시간. 논문에 없음 — 측정으로 재검토
+STATIC_OWNER_RADIUS = float(os.getenv("STATIC_OWNER_RADIUS", "0.2"))        # 물건 영역이 손목에서 사람 키의 몇 배 안이면 그 사람 것으로 보나. 임시값(0.3에서 엄격하게 줄임, 2026-10-15). 논문에 수치 없음 — 로그의 거리 분포로 재검토
+STATIC_WRIST_CONF = float(os.getenv("STATIC_WRIST_CONF", "0.3"))            # 손목 관절을 쓸 최소 신뢰도. 논문에 없음 — 재검토
+STATIC_DEPART_SEC = float(os.getenv("STATIC_DEPART_SEC", "2.0"))            # 그 번호가 이만큼 안 보이면 사라진 것(떠남)으로 본다. 논문에 없음 — 재검토
+STATIC_PENDING_SEC = float(os.getenv("STATIC_PENDING_SEC", "30.0"))          # 모델이 먼저 이상으로 본 뒤 물건 확인을 기다리는 시간. 논문에 없음 — 측정으로 재검토
+STATIC_PERSON_PAD = float(os.getenv("STATIC_PERSON_PAD", "0.1"))             # 논문에 없음(사람 박스 제외는 우리 추가)
+STATIC_GROW_TOL = int(os.getenv("STATIC_GROW_TOL", "10"))                    # Tian 외 2011에 수치 없음 — 측정으로 재검토
+STATIC_SIMILAR_RATIO = float(os.getenv("STATIC_SIMILAR_RATIO", "1.5"))       # Tian 외 2011에 수치 없음 — 측정으로 재검토
 EVENT_COOLDOWN_SEC = float(os.getenv("EVENT_COOLDOWN_SEC", "30.0"))
 
 # FR-EVT-08

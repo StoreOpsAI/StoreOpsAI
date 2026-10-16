@@ -1,4 +1,5 @@
 from pathlib import Path
+import shutil
 import subprocess
 import cv2
 
@@ -21,19 +22,24 @@ def save_frames(frames, path, fps):
             writer.write(frame)
     finally:
         writer.release()
+    encoded_path = path.with_suffix(".h264.mp4")
     try:
-        # OpenCV 기본 mp4v는 브라우저에서 재생되지 않을 수 있어 H.264로 표준화한다.
+        ffmpeg = shutil.which("ffmpeg")
+        if not ffmpeg:
+            try:
+                import imageio_ffmpeg
+                ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
+            except (ImportError, RuntimeError) as exc:
+                raise RuntimeError("H.264 MP4 saving requires ffmpeg or imageio-ffmpeg") from exc
         subprocess.run(
-            [
-                "ffmpeg", "-y", "-loglevel", "error", "-i", str(temporary_path),
-                "-c:v", "libx264", "-pix_fmt", "yuv420p", "-movflags", "+faststart", str(path),
-            ],
+            [ffmpeg, "-y", "-loglevel", "error", "-i", str(temporary_path),
+             "-c:v", "libx264", "-pix_fmt", "yuv420p", "-movflags", "+faststart", str(encoded_path)],
             check=True,
         )
+        encoded_path.replace(path)
+    finally:
         temporary_path.unlink(missing_ok=True)
-    except (FileNotFoundError, subprocess.CalledProcessError):
-        # 로컬 개발 환경에 FFmpeg가 없으면 OpenCV 결과를 그대로 보존한다.
-        temporary_path.replace(path)
+        encoded_path.unlink(missing_ok=True)
     return path
 
 
