@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Dict, Optional
 
 import logging
+from datetime import datetime, timezone
 
 from config.config import (
     YOLO_MODEL_PATH, TRACKER_CONFIG, CONF_THRESHOLD, PERSON_CLASS_ID,
@@ -54,6 +55,7 @@ class Path1BehaviorPipeline:
         self._pending_video_events = []
         # (범위, 카테고리) -> 마지막 사건 발급 시각(영상 시간, 초). 같은 사건의 중복 발급 방지.
         self._last_event_time = {}
+        self._capture_timestamp_offset = 0.0
         # frame_no -> (카테고리, 점수). 임계값을 넘은 분류 구간을 tracked 영상에 빨갛게 표시하기 위한 기록.
         self._alert_frames = {}
 
@@ -171,6 +173,11 @@ class Path1BehaviorPipeline:
             clip_path=str(clip_path), event_video_path=str(video_path),
             representative_images=images, event_video_complete=False, status="사건후보",
             alert_sent=False, vlm={"status": "PENDING"},
+            created_at=(
+                datetime.fromtimestamp(end_time, timezone.utc)
+                if self._capture_timestamp_offset > 0
+                else datetime.now(timezone.utc)
+            ),
         )
         # FR-EVT-06: 저장 후 번호가 붙은 사건 후보
         self.events.save(event)
@@ -247,7 +254,7 @@ class Path1BehaviorPipeline:
         self.issued_events.append(event)
         return event
 
-    def _infer_full(self, small_buf, window_tids, frames, fps, frame_no, score_provider, window_boxes=()):
+    def _infer_full(self, small_buf, window_tids, frames, fps, frame_no, score_provider, window_boxes=(), time_offset_sec=0.0):
         """화면 전체 모드: 최근 I3D_WINDOW_SEC 구간을 분류한다 (학습 때와 같은 입력 방식)."""
         track_ids = sorted(set().union(*[t for _, t in window_tids])) if window_tids else []
         # 사람이 추적되지 않은 창도 분류한다: 쓰러진 사람을 추적기가 놓치거나(전도), 사람이 떠난 뒤(유기)가 바로 판정 구간이고,
@@ -260,7 +267,7 @@ class Path1BehaviorPipeline:
             crop_input = [cv2.resize(union_crop(frames[fn], boxes), (self.i3d.input_size, self.i3d.input_size), interpolation=cv2.INTER_LINEAR)
                           for fn, _ in small_buf]
         category, confidence, scores = self._classify(model_input, score_provider, crop_input)
-        t_now = frame_no / fps
+        t_now = time_offset_sec + frame_no / fps
         logger.info("[I3D] t=%.1fs %s %.3f | %s", t_now, category, confidence,
                     {k: round(v, 3) for k, v in scores.items() if v >= 0.01})
 
@@ -281,9 +288,11 @@ class Path1BehaviorPipeline:
         return self._issue(
             "scene", category, confidence, scores, track_ids,
             frames[clip_start:frame_no + 1], frames[ev_start:frame_no + 1],
-            fps, clip_start, frame_no, clip_start / fps, t_now)
+            fps, clip_start, frame_no, time_offset_sec + clip_start / fps, t_now)
 
-    def analyze(self, video_path, score_provider: Optional[callable] = None):
+    def analyze(self, video_path, score_provider: Optional[callable] = None,
+                time_offset_sec=0.0, save_tracked=True):
+        self._capture_timestamp_offset = time_offset_sec
         if I3D_INPUT_MODE != "full":
             raise ValueError("행동분류 운영 모드는 화면 전체(full)만 지원합니다.")
         crop_mode = False
@@ -356,7 +365,10 @@ class Path1BehaviorPipeline:
                 if frame_no >= next_infer_full:
                     next_infer_full = frame_no + interval_frames
                     did_full_infer = True
-                    event = self._infer_full(small_buf, window_tids, frames, fps, frame_no, score_provider, window_boxes)
+                    event = self._infer_full(
+                        small_buf, window_tids, frames, fps, frame_no, score_provider,
+                        window_boxes, time_offset_sec,
+                    )
                     if event:
                         self._queue_event_video(event, frames, fps, frame_no)
 
@@ -402,20 +414,24 @@ class Path1BehaviorPipeline:
             if len(small_buf) >= 2 and (frame_no / fps) >= CLIP_MIN_SEC:
                 logger.info("영상(%.1fs)이 분류 윈도우(%.1fs)보다 짧아 전체 구간을 1회 분류합니다.",
                             frame_no / fps, I3D_WINDOW_SEC)
-                event = self._infer_full(small_buf, window_tids, frames, fps, frame_no - 1, score_provider)
+                event = self._infer_full(
+                    small_buf, window_tids, frames, fps, frame_no - 1,
+                    score_provider, time_offset_sec=time_offset_sec,
+                )
                 if event:
                     self._queue_event_video(event, frames, fps, frame_no - 1)
 
         # 입력 영상의 끝에서 후행 5초가 없으면 가능한 구간을 저장하고 incomplete를 명시한다.
         self._finalize_due_event_videos(frames, fps, frame_no, force=True)
 
-        tracked_path = Path(video_path).with_name(Path(video_path).stem + "_tracked.mp4")
-        # 분류 결과를 알게 된 뒤에 그린다: 사건 구간은 빨강, 나머지는 초록
-        annotated = [self._annotate(f, d, self._alert_frames.get(i))
-                     for i, (f, d) in enumerate(zip(frames, det_log))]
-        save_frames(annotated, tracked_path, fps)
-        if self.debug:
-            print(f"[완료] Bounding Box/Track 영상: {tracked_path}")
+        if save_tracked:
+            tracked_path = Path(video_path).with_name(Path(video_path).stem + "_tracked.mp4")
+            # 분류 결과를 알게 된 뒤에 그린다: 사건 구간은 빨강, 나머지는 초록
+            annotated = [self._annotate(f, d, self._alert_frames.get(i))
+                         for i, (f, d) in enumerate(zip(frames, det_log))]
+            save_frames(annotated, tracked_path, fps)
+            if self.debug:
+                print(f"[완료] Bounding Box/Track 영상: {tracked_path}")
             print(f"[완료] 이벤트 수: {len(self.issued_events)}")
         return self.issued_events
 

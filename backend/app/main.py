@@ -14,6 +14,7 @@ from app.repositories.event_repository import EventRepository
 from app.repositories.event_repository import PostgresEventRepository
 from app.database import get_database_url
 from app.routers.auth import create_auth_router, create_current_user_dependency
+from app.routers.camera import create_camera_router
 from app.routers.events import create_events_router
 from app.routers.demand import create_demand_router
 from app.routers.internal_events import create_internal_events_router
@@ -49,6 +50,7 @@ event_service = EventService(event_repository)
 auth_service = AuthService(auth_repository)
 current_user = create_current_user_dependency(auth_service)
 app.include_router(create_events_router(event_service, current_user))
+app.include_router(create_camera_router(current_user))
 app.include_router(create_auth_router(auth_service))
 app.include_router(create_demand_router(current_user))
 app.include_router(create_internal_events_router(event_service))

@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { getCurrentUser, logIn, logOut, signUp } from "./api/auth";
+import { analyzeCameraBatch } from "./api/camera";
 import {
   getEvent,
   getEventClip,
@@ -1110,10 +1111,177 @@ function QuestionsPanel() {
   );
 }
 
+function WebcamMonitor({ storeId }) {
+  const videoRef = useRef(null);
+  const canvasRef = useRef(null);
+  const streamRef = useRef(null);
+  const timerRef = useRef(null);
+  const framesRef = useRef([]);
+  const newFramesSinceBatchRef = useRef(0);
+  const isSendingRef = useRef(false);
+  const isCapturingRef = useRef(false);
+  const [cameraState, setCameraState] = useState("idle");
+  const [analysisState, setAnalysisState] = useState("대기 중");
+  const [error, setError] = useState("");
+
+  const stopCamera = () => {
+    window.clearInterval(timerRef.current);
+    timerRef.current = null;
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+    streamRef.current = null;
+    if (videoRef.current) videoRef.current.srcObject = null;
+    framesRef.current = [];
+    newFramesSinceBatchRef.current = 0;
+    setCameraState("idle");
+    setAnalysisState("대기 중");
+  };
+
+  useEffect(
+    () => () => {
+      window.clearInterval(timerRef.current);
+      streamRef.current?.getTracks().forEach((track) => track.stop());
+    },
+    [],
+  );
+
+  const startCamera = async () => {
+    setError("");
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setError("이 브라우저에서 웹캠을 사용할 수 없습니다.");
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: {
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+        },
+      });
+      streamRef.current = stream;
+      videoRef.current.srcObject = stream;
+      await videoRef.current.play();
+      framesRef.current = [];
+      newFramesSinceBatchRef.current = 0;
+      setCameraState("live");
+      setAnalysisState("프레임 수집 중");
+
+      // I3D 입력 속도인 초당 3장으로 수집해 10초마다 한 묶음으로 분석합니다.
+      timerRef.current = window.setInterval(() => {
+        const video = videoRef.current;
+        const canvas = canvasRef.current;
+        if (!video || !canvas || video.readyState < 2 || isCapturingRef.current)
+          return;
+        isCapturingRef.current = true;
+        const scale = Math.min(1, 640 / video.videoWidth);
+        canvas.width = Math.round(video.videoWidth * scale);
+        canvas.height = Math.round(video.videoHeight * scale);
+        const context = canvas.getContext("2d");
+        context.drawImage(video, 0, 0, canvas.width, canvas.height);
+        framesRef.current.push({
+          capturedAt: Date.now() / 1000,
+          image: canvas.toDataURL("image/jpeg", 0.68).split(",")[1],
+        });
+        isCapturingRef.current = false;
+        newFramesSinceBatchRef.current += 1;
+
+        if (newFramesSinceBatchRef.current < 30) return;
+        const batch = framesRef.current;
+        const capturedAt = batch[0].capturedAt;
+        framesRef.current = batch.slice(-12);
+        newFramesSinceBatchRef.current = 0;
+        if (isSendingRef.current) {
+          setAnalysisState("직전 구간 분석 중, 이번 구간은 건너뜀");
+          return;
+        }
+
+        isSendingRef.current = true;
+        setAnalysisState("10초 구간 분석 중");
+        analyzeCameraBatch({
+          camera_id: "CAM-01",
+          captured_at: capturedAt,
+          frames: batch.map((frame) => frame.image),
+        })
+          .then((result) => {
+            setAnalysisState(
+              result.issued_event_count
+                ? `이상 사건 ${result.issued_event_count}건 등록`
+                : "이상행동 없음",
+            );
+          })
+          .catch((requestError) => {
+            setAnalysisState("분석 요청 실패");
+            setError(requestError.message);
+          })
+          .finally(() => {
+            isSendingRef.current = false;
+          });
+      }, 333);
+    } catch (cameraError) {
+      streamRef.current?.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+      setCameraState("idle");
+      setError(
+        cameraError.name === "NotAllowedError"
+          ? "웹캠 사용 권한이 필요합니다. 브라우저 권한을 허용해 주세요."
+          : cameraError.message || "웹캠을 시작하지 못했습니다.",
+      );
+    }
+  };
+
+  return (
+    <section className="camera-monitor" aria-label="실시간 웹캠 관제">
+      <div className="camera-monitor-heading">
+        <div>
+          <span className="panel-label">LIVE CAMERA · {storeId} · CAM-01</span>
+          <h2>실시간 웹캠</h2>
+        </div>
+        <span className={`camera-state camera-${cameraState}`}>
+          <span /> {cameraState === "live" ? "실시간" : "중지됨"}
+        </span>
+      </div>
+      <div className="camera-monitor-body">
+        <div className="camera-video-frame">
+          <video ref={videoRef} autoPlay muted playsInline />
+          {cameraState !== "live" && <span>웹캠이 꺼져 있습니다</span>}
+          <canvas ref={canvasRef} className="camera-capture-canvas" />
+        </div>
+        <div className="camera-controls">
+          <p className="panel-label">행동 분석</p>
+          <strong>{analysisState}</strong>
+          <p>10초마다 수집한 프레임을 I3D로 분석합니다.</p>
+          {error && (
+            <p className="camera-error" role="alert">
+              {error}
+            </p>
+          )}
+          {cameraState === "live" ? (
+            <button
+              type="button"
+              className="secondary-button camera-toggle"
+              onClick={stopCamera}
+            >
+              웹캠 중지
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="primary-button camera-toggle"
+              onClick={startCamera}
+            >
+              웹캠 시작
+            </button>
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function App() {
   const [authState, setAuthState] = useState("loading");
   const [user, setUser] = useState(null);
-  const [activeTab, setActiveTab] = useState("events");
+  const [activeTab, setActiveTab] = useState("camera");
   const [health, setHealth] = useState("연결 확인 중");
   const [events, setEvents] = useState([]);
   const [selectedEvent, setSelectedEvent] = useState(null);
@@ -1257,48 +1425,61 @@ function App() {
       </header>
       <nav className="main-nav" aria-label="주요 업무">
         <button
+          className={activeTab === "camera" ? "active" : ""}
+          onClick={() => setActiveTab("camera")}
+          type="button"
+        >
+          <span>01</span> 관제
+        </button>
+        <button
           className={activeTab === "events" ? "active" : ""}
           onClick={() => setActiveTab("events")}
           type="button"
         >
-          <span>01</span> 사건
+          <span>02</span> 사건
         </button>
         <button
           className={activeTab === "orders" ? "active" : ""}
           onClick={() => setActiveTab("orders")}
           type="button"
         >
-          <span>02</span> 발주
+          <span>03</span> 발주
         </button>
         <button
           className={activeTab === "questions" ? "active" : ""}
           onClick={() => setActiveTab("questions")}
           type="button"
         >
-          <span>03</span> 질문
+          <span>04</span> 질문
         </button>
       </nav>
       <section className="page-content">
         <div className="page-heading">
           <div>
             <p className="eyebrow">
-              {activeTab === "questions"
-                ? "매장 기록과 규정"
-                : "오늘의 운영 현황"}
+              {activeTab === "camera"
+                ? "S01 매장 실시간 관제"
+                : activeTab === "questions"
+                  ? "매장 기록과 규정"
+                  : "오늘의 운영 현황"}
             </p>
             <h1>
-              {activeTab === "orders"
-                ? "발주 관리"
-                : activeTab === "questions"
-                  ? "매장 질문"
-                  : "사건 확인"}
+              {activeTab === "camera"
+                ? "실시간 관제"
+                : activeTab === "orders"
+                  ? "발주 관리"
+                  : activeTab === "questions"
+                    ? "매장 질문"
+                    : "사건 확인"}
             </h1>
             <p>
-              {activeTab === "orders"
-                ? "수요와 재고를 바탕으로 발주 초안을 만들고 승인합니다."
-                : activeTab === "questions"
-                  ? "매장 기록을 조회하고 점검 규정의 근거를 확인합니다."
-                  : "매장에서 감지된 이상 상황을 검토하고 처리합니다."}
+              {activeTab === "camera"
+                ? "웹캠 화면과 이상행동 분석 상태를 확인합니다."
+                : activeTab === "orders"
+                  ? "수요와 재고를 바탕으로 발주 초안을 만들고 승인합니다."
+                  : activeTab === "questions"
+                    ? "매장 기록을 조회하고 점검 규정의 근거를 확인합니다."
+                    : "매장에서 감지된 이상 상황을 검토하고 처리합니다."}
             </p>
           </div>
           {activeTab === "events" && (
@@ -1312,7 +1493,9 @@ function App() {
             </button>
           )}
         </div>
-        {activeTab === "orders" ? (
+        {activeTab === "camera" ? (
+          <WebcamMonitor storeId={user.store_id} />
+        ) : activeTab === "orders" ? (
           <OrderPanel />
         ) : activeTab === "questions" ? (
           <QuestionsPanel />
