@@ -275,6 +275,97 @@ button:disabled {
   gap: 22px;
   align-items: start;
 }
+.camera-monitor {
+  margin-bottom: 22px;
+  border: 1px solid var(--line);
+  background: var(--white);
+}
+.camera-monitor-heading,
+.camera-monitor-body {
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 20px 24px;
+}
+.camera-monitor-heading {
+  align-items: center;
+  border-bottom: 1px solid var(--line);
+}
+.camera-monitor-heading h2 {
+  margin: 5px 0 0;
+  font-size: 18px;
+}
+.camera-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--muted);
+  font:
+    11px "DM Mono",
+    monospace;
+}
+.camera-state > span {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #9da197;
+}
+.camera-live {
+  color: #47751d;
+}
+.camera-live > span {
+  background: #73aa36;
+  box-shadow: 0 0 0 3px #e8f3d9;
+}
+.camera-monitor-body {
+  align-items: center;
+}
+.camera-video-frame {
+  position: relative;
+  width: min(100%, 640px);
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  background: #20231f;
+  color: #d5d9d0;
+  font-size: 13px;
+}
+.camera-video-frame video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.camera-video-frame > span {
+  position: absolute;
+}
+.camera-capture-canvas {
+  display: none;
+}
+.camera-controls {
+  display: grid;
+  align-content: center;
+  justify-items: start;
+  gap: 10px;
+  min-width: 220px;
+}
+.camera-controls > strong {
+  font-size: 15px;
+}
+.camera-controls > p:not(.panel-label, .camera-error) {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.camera-error {
+  margin: 0;
+  color: var(--red);
+  font-size: 12px;
+}
+.camera-toggle {
+  padding: 10px 14px;
+}
 .orders-layout {
   display: grid;
   grid-template-columns: minmax(280px, 0.75fr) minmax(460px, 1.35fr);
@@ -1010,6 +1101,16 @@ button:disabled {
   }
   .workspace-grid {
     grid-template-columns: 1fr;
+  }
+  .camera-monitor-body {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .camera-video-frame {
+    width: 100%;
+  }
+  .camera-controls {
+    min-width: 0;
   }
   .orders-layout {
     grid-template-columns: 1fr;

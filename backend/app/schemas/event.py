@@ -2,6 +2,7 @@
 
 from datetime import datetime
 from typing import Literal
+from uuid import UUID
 
 from pydantic import BaseModel, Field
 
@@ -49,6 +50,8 @@ class Event(BaseModel):
     """사건 목록과 상세 조회에서 공통으로 사용하는 사건 모델입니다."""
 
     event_id: str
+    # 중복 확인에만 사용하는 식별자는 점주 응답에서 제외한다.
+    event_uid: UUID | None = Field(default=None, exclude=True)
     store_id: str
     camera_id: str
     source: Literal['behavior_model', 'time_rule']
@@ -93,6 +96,7 @@ class EventIngestRequest(BaseModel):
     """탐지 서비스가 백엔드로 전달하는 사건 후보입니다."""
 
     event_id: str | None = Field(default=None, min_length=1, max_length=16)
+    event_uid: UUID | None = None
     camera_id: str = Field(min_length=1, max_length=32)
     event_type: str = Field(min_length=1, max_length=32)
     category: str | None = None

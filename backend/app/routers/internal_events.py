@@ -3,10 +3,13 @@
 import os
 import json
 import re
+import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import Literal
+from uuid import NAMESPACE_URL, uuid5
 
-from fastapi import APIRouter, Header, HTTPException, status
+from fastapi import APIRouter, Header, HTTPException, Request, status
 
 from app.schemas.event import Event, EventClip, EventIngestRequest, EventMediaReference, EventVlm, EventVlmUpdateRequest
 from app.services.event_service import EventNotFoundError, EventService
@@ -68,14 +71,21 @@ def create_internal_events_router(event_service: EventService) -> APIRouter:
             clip_length = max(0, round(payload.clip_end_time_sec - payload.clip_start_time_sec))
         elif clip_path:
             clip_length = 10
-        event_id = event_service.next_event_id()
+        if payload.event_uid is None and payload.event_id is None:
+            raise HTTPException(status_code=422, detail='사건 고유 식별자가 필요합니다.')
+        # 구형 탐지기의 재전송도 원본 번호와 시각으로 식별한다. 새 탐지기는 UUID를 보낸다.
+        event_uid = payload.event_uid or uuid5(NAMESPACE_URL, json.dumps([
+            payload.event_id,
+            (payload.occurred_at or payload.created_at).isoformat() if payload.occurred_at or payload.created_at else None,
+        ]))
         representative_images = _store_representative_images(
             payload.representative_images,
             payload.event_id,
         )
 
         event = Event(
-            event_id=event_id,
+            event_id='',
+            event_uid=event_uid,
             store_id=store_id,
             camera_id=payload.camera_id,
             source=source,
@@ -132,11 +142,63 @@ def create_internal_events_router(event_service: EventService) -> APIRouter:
         except ValueError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
 
+    @router.put('/events/{event_id}/media/{media_type}', response_model=Event)
+    async def upload_event_media(
+        event_id: str,
+        media_type: Literal['clip', 'frame_start', 'frame_middle', 'frame_end'],
+        request: Request,
+        authorization: str | None = Header(default=None),
+    ) -> Event:
+        """탐지 PC가 보낸 파일을 크기 제한을 확인하며 백엔드 출력 폴더에 저장합니다."""
+
+        received_token = authorization.removeprefix('Bearer ').strip() if authorization else None
+        store_id = _load_token_store_map().get(received_token or '')
+        if not store_id:
+            raise HTTPException(status_code=401, detail='탐지 서비스 인증이 필요합니다.')
+        try:
+            event = event_service.get_event(event_id)
+        except EventNotFoundError as error:
+            raise HTTPException(status_code=404, detail='사건을 찾을 수 없습니다.') from error
+        if event.store_id != store_id:
+            raise HTTPException(status_code=403, detail='해당 매장 사건에 접근할 수 없습니다.')
+        if event.source != 'behavior_model':
+            raise HTTPException(status_code=422, detail='행동 사건에만 미디어를 저장할 수 있습니다.')
+
+        is_clip = media_type == 'clip'
+        if request.headers.get('content-type', '').split(';', 1)[0] != ('video/mp4' if is_clip else 'image/jpeg'):
+            raise HTTPException(status_code=415, detail='미디어 형식이 올바르지 않습니다.')
+        max_bytes = 50 * 1024 * 1024 if is_clip else 5 * 1024 * 1024
+        output_root = Path(os.getenv('STOREOPS_OUTPUT_DIR', '/app/output')).resolve()
+        directory = 'clips' if is_clip else 'representative_images'
+        suffix = '10sec.mp4' if is_clip else f"{('frame_start', 'frame_middle', 'frame_end').index(media_type) + 1}.jpg"
+        target = output_root / directory / f'{event_id}_{suffix}'
+        target.parent.mkdir(parents=True, exist_ok=True)
+        temporary = None
+        try:
+            with tempfile.NamedTemporaryFile(dir=target.parent, delete=False) as file:
+                temporary = Path(file.name)
+                size = 0
+                signature = b''
+                async for chunk in request.stream():
+                    size += len(chunk)
+                    if size > max_bytes:
+                        raise HTTPException(status_code=413, detail='미디어 파일이 너무 큽니다.')
+                    if len(signature) < 12:
+                        signature += chunk[:12 - len(signature)]
+                    file.write(chunk)
+            if not size or (is_clip and signature[4:8] != b'ftyp') or (not is_clip and not signature.startswith(b'\xff\xd8')):
+                raise HTTPException(status_code=422, detail='미디어 파일 내용이 올바르지 않습니다.')
+            temporary.replace(target)
+            return event_service.update_media(event_id, media_type, f'{directory}/{target.name}')
+        finally:
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
+
     return router
 
 
 def _to_korea_time(value: datetime | None) -> datetime:
-    """storeops_ai 컨테이너는 UTC로 동작하므로 시간대 정보가 없는 값은 UTC로 간주한 뒤 KST로 바꾼다."""
+    """시간대가 포함된 탐지 시각을 KST로 바꾸고 구형 요청의 시각은 기존처럼 UTC로 간주한다."""
 
     if value is None:
         return datetime.now(KOREA_TIMEZONE)

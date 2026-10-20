@@ -47,6 +47,8 @@ CREATE TABLE cameras (
 
 CREATE TABLE events (
     event_id varchar(16) PRIMARY KEY,
+    -- 탐지 UUID는 화면 번호와 별개이며 같은 매장·카메라의 재전송을 식별합니다.
+    event_uid uuid,
     store_id varchar(32) NOT NULL REFERENCES stores(store_id),
     camera_id varchar(32) NOT NULL REFERENCES cameras(camera_id),
     source varchar(32) NOT NULL
@@ -240,6 +242,7 @@ CREATE TABLE audit_logs (
 CREATE INDEX ix_users_store ON users (store_id);
 CREATE INDEX ix_auth_sessions_expiry ON auth_sessions (expires_at);
 CREATE INDEX ix_events_store_occurred ON events (store_id, occurred_at DESC);
+CREATE UNIQUE INDEX uq_events_ingest ON events (store_id, camera_id, event_uid);
 CREATE INDEX ix_events_store_status_occurred
     ON events (store_id, status, occurred_at DESC);
 CREATE INDEX ix_events_camera_occurred ON events (camera_id, occurred_at DESC);

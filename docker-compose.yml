@@ -34,6 +34,7 @@ services:
       STOREOPS_QNA_TOKEN: ${STOREOPS_QNA_TOKEN:?질문 서비스 공유 토큰을 설정하세요}
       STOREOPS_DEMAND_TOKENS_JSON: ${STOREOPS_DEMAND_TOKENS_JSON:?매장별 수요 서비스 토큰 매핑을 설정하세요}
       STOREOPS_AI_INGEST_TOKENS_JSON: ${STOREOPS_AI_INGEST_TOKENS_JSON:?매장별 탐지 토큰 매핑을 설정하세요}
+      STOREOPS_AI_URL: http://storeops-ai:8000
       # 점주가 지난 사건을 물을 때 질문 Agent 요청으로 대표 이미지를 해석하는 VLM 서버(사건 시점에는 호출하지 않음)
       QWEN_VLM_BASE_URL: http://qwen-vllm:8000/v1
       QWEN_VLM_MODEL: ${QWEN_VLM_MODEL:-Qwen/Qwen3-VL-8B-Instruct-FP8}
@@ -69,6 +70,8 @@ services:
       ALERT_WEBHOOK_URL: http://backend:8000/api/internal/events
       VLM_RESULT_WEBHOOK_URL: http://backend:8000/api/internal/events/{event_id}/vlm
       QWEN_VLM_BASE_URL: http://qwen-vllm:8000/v1
+      # 사건 대표 이미지를 VLM에 보내고 설명을 백엔드에 저장합니다.
+      VLM_ON_EVENT: "1"
       EVENT_INGEST_TOKEN: ${STOREOPS_AI_INGEST_TOKEN:?탐지 서비스 토큰을 설정하세요}
       STOREOPS_BACKEND_URL: http://backend:8000
     ports:
@@ -82,7 +85,7 @@ services:
 
   qwen-vllm:
     image: ${VLLM_IMAGE:-vllm/vllm-openai:v0.30.0}
-    container_name: storeops-qwen-vllm
+    container_name: qwen-vllm
     restart: unless-stopped
     gpus: all
     shm_size: 8gb
@@ -100,7 +103,7 @@ services:
       - --max-model-len
       - ${VLLM_MAX_MODEL_LEN:-4096}
     ports:
-      - "127.0.0.1:8001:8000"
+      - "8001:8000"
     volumes:
       - qwen_vlm_hf_cache:/root/.cache/huggingface
       - qwen_vlm_compile_cache:/root/.cache/vllm

@@ -1,4 +1,5 @@
-from datetime import datetime
+from datetime import datetime, timezone
+from uuid import UUID, uuid4
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
@@ -23,7 +24,10 @@ class EventCandidate(BaseModel):
     행동 사건: category/confidence/scores/영상/대표 이미지 사용
     카메라 끊김 사건: 영상과 점수는 비워 두고 disconnect 정보만 사용
     """
+    # shortcut: MVP 번호는 E001~E999만 지원하며 1,000건 전에 자릿수 정책을 확장한다.
     event_id: str = Field(..., pattern=r"^E\d{3}$")
+    # 화면 번호와 별개로 생성·저장한 UUID를 재전송에도 그대로 사용한다.
+    event_uid: UUID = Field(default_factory=uuid4)
     backend_event_id: Optional[str] = None
     camera_id: str
     event_type: str
@@ -53,7 +57,8 @@ class EventCandidate(BaseModel):
     alert_status: str = "PENDING"
     alert_error: Optional[str] = None
     vlm: Optional[Dict[str, Any]] = None
-    created_at: datetime = Field(default_factory=datetime.now)
+    # 호스트와 컨테이너의 현지 시간 설정에 관계없이 시간대를 함께 전송한다.
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     def to_dict(self):
         data = self.model_dump(mode="json")
