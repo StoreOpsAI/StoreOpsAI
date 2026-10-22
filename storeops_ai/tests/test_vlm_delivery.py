@@ -46,6 +46,19 @@ class VLMDeliveryTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             analyzer.analyze(["a.jpg", "b.jpg"], {})
 
+    def test_analyzer_sends_only_first_middle_and_last_images(self):
+        result = {
+            "observation": "사건 장면",
+            "uncertain_points": "없음",
+            "owner_actions": ["현장 확인", "직원 확인", "영상 확인"],
+        }
+        received = []
+        analyzer = VLMAnalyzer(transport=lambda images, _: received.append(images) or result)
+
+        analyzer.analyze([f"frame-{index}.jpg" for index in range(12)], {})
+
+        self.assertEqual(received, [["frame-0.jpg", "frame-6.jpg", "frame-11.jpg"]])
+
     def test_qwen_chat_completion_json_is_normalized_and_validated(self):
         response = {
             "choices": [

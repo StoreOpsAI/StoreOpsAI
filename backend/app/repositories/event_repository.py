@@ -55,6 +55,7 @@ class EventRepository:
         self,
         store_id: str | None = None,
         status: EventStatus | None = None,
+        limit: int | None = None,
     ) -> list[Event]:
         """매장과 상태로 필터링하고 발생 시각이 최신인 순서로 반환합니다."""
 
@@ -63,7 +64,8 @@ class EventRepository:
             events = [event for event in events if event.store_id == store_id]
         if status is not None:
             events = [event for event in events if event.status == status]
-        return sorted(events, key=lambda event: event.occurred_at, reverse=True)
+        events = sorted(events, key=lambda event: event.occurred_at, reverse=True)
+        return events[:limit]
 
     def get(self, event_id: str) -> Event | None:
         """사건 번호로 사건을 조회합니다."""
@@ -267,7 +269,12 @@ class PostgresEventRepository:
             cursor.execute("SELECT 'E' || LPAD(nextval('event_number_seq')::text, 3, '0')")
             return cursor.fetchone()[0]
 
-    def list_events(self, store_id: str | None = None, status: EventStatus | None = None) -> list[Event]:
+    def list_events(
+        self,
+        store_id: str | None = None,
+        status: EventStatus | None = None,
+        limit: int | None = None,
+    ) -> list[Event]:
         """매장과 상태 조건이 없으면(NULL) 전체를 조회하고 최신 발생 순으로 반환합니다."""
 
         query = """
@@ -294,9 +301,10 @@ class PostgresEventRepository:
             WHERE (%s::varchar IS NULL OR e.store_id = %s)
               AND (%s::varchar IS NULL OR e.status = %s)
             ORDER BY e.occurred_at DESC
+                        LIMIT %s
         """
         with connect() as connection, connection.cursor() as cursor:
-            cursor.execute(query, (store_id, store_id, status, status))
+            cursor.execute(query, (store_id, store_id, status, status, limit))
             rows = cursor.fetchall()
         return [self._event_from_row(row) for row in rows]
 

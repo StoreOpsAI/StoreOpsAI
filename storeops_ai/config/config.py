@@ -227,9 +227,8 @@ VLM_ON_EVENT = os.getenv("VLM_ON_EVENT", "0") == "1"
 # VLM_GATE_FAIL_OPEN=1이면 VLM 실패·미설정 때도 보낸다(실제 사건을 장애로 놓치지 않게). 0이면 보내지 않는다.
 VLM_GATE_ENABLED = os.getenv("VLM_GATE_ENABLED", "1") == "1"
 VLM_GATE_FAIL_OPEN = os.getenv("VLM_GATE_FAIL_OPEN", "1") == "1"
-# VLM 확인에 보내는 프레임 수 상한. 0이면 사건 클립의 처리 프레임을 전부 보낸다(사용자 결정 2026-10-19).
-# 사건 클립: 모델·전도 경보는 판정 직전 CLIP_MAX_SEC초, 유기·절도 물건 경보는 물건이 멈춘 시점 t0 ± Ts(Lin 2015, 2026-10-22)
-VLM_GATE_MAX_FRAMES = int(os.getenv("VLM_GATE_MAX_FRAMES", "0"))
+# Qwen 설정의 프롬프트당 이미지 제한에 맞춰 사건 확인 프레임은 3장만 저장한다.
+VLM_GATE_MAX_FRAMES = int(os.getenv("VLM_GATE_MAX_FRAMES", "3"))
 # 점주 대시보드 실시간 화면(utils/live_stream.py): 탐지 화면을 토큰(EVENT_INGEST_TOKEN)이 맞는 요청에만 준다. 백엔드가 점주 로그인 확인 뒤 중계한다
 LIVE_STREAM_ENABLED = os.getenv("LIVE_STREAM_ENABLED", "1") == "1"
 LIVE_STREAM_HOST = os.getenv("LIVE_STREAM_HOST", "0.0.0.0")   # 백엔드 컨테이너가 host.docker.internal로 부른다

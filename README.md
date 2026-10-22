@@ -12,7 +12,8 @@
 
 - 점주 회원가입·로그인 및 `X-Session-ID` 세션 인증
 - 점주 매장으로 범위가 제한된 사건 조회, 상세·미디어 확인, 상태 변경 및 이력 조회
-- CCTV 행동 분석과 카메라 연결 끊김 사건 수신
+- 관제 화면에서 탐지 PC 카메라 실시간 화면과 최신 사건 5건을 함께 확인
+- CCTV 행동 분석 결과와 카메라 연결 끊김 사건 수신
 - 수요 예측 결과 기반 발주 초안 생성, 조회와 승인
 - 로그인한 점주의 사건·발주 기록과 매장 점검 규정 질문 및 근거 확인
 - PostgreSQL 영속 저장 및 로컬 개발용 메모리 저장소
@@ -25,21 +26,18 @@
 StoreOpsAI/
 ├── AGENTS.md                         # 작업 지침
 ├── README.md                         # 프로젝트 및 개발환경 안내
-├── docker-compose.yml                # 메인 PC용 6개 컨테이너
-├── llama.cpp/llama.cpp/              # Windows CPU·Vulkan·CUDA 실행 파일
+├── docker-compose.yml                # PostgreSQL·백엔드·프런트·AI 서비스
 ├── backend/                          # FastAPI 업무 API
 │   ├── app/
-│   │   ├── routers/                  # auth, demand, events, internal_events, questions
+│   │   ├── routers/                  # auth, camera, demand, events, internal_events, questions
 │   │   ├── repositories/             # 인증·사건 메모리/PostgreSQL 저장소
 │   │   ├── schemas/                  # API 모델
 │   │   └── services/                 # 인증·사건 업무 로직
 │   ├── migrations/                   # PostgreSQL 스키마 변경
-│   ├── sql/                          # SQL 스크립트
 │   └── tests/                        # 백엔드 테스트
 ├── frontend/                         # React 19 + Vite 점주 화면
 │   └── src/
-│       ├── api/                      # auth, demand, events, questions API
-│       └── assets/                   # 화면 리소스
+│       └── api/                      # auth, camera, demand, events, questions API
 ├── storeops-demand/                  # 수요 예측·발주 초안
 │   ├── storeops/                     # API, 데이터, 예측, 주문, 학습
 │   ├── artifacts/                    # 모델·평가 결과
@@ -47,33 +45,33 @@ StoreOpsAI/
 │   ├── reports/                      # 검증 보고서
 │   ├── runtime/                      # SQLite 실행 데이터
 │   └── tests/
-└── storeops_ai/                      # CCTV 분석·카메라 감시
-  ├── api/                          # 영상 분석·카메라 연결 API
-  ├── config/                       # 탐지·모델 설정
-  ├── models/                       # YOLO, S3D, VLM
-  ├── pipelines/                    # 행동 분석·웹캠·연결 감시
-  ├── input/                        # 입력·실패·처리 영상
-  ├── output/                       # 사건 클립·이미지·JSON
-  ├── tools/                        # 모델 확인·Qwen 서버 실행
-  └── training/                     # manifests, runs, scripts
+└── storeops_ai/                       # CCTV 분석·카메라 감시
+    ├── api/                           # 영상 분석·카메라 연결 API
+    ├── config/                        # 탐지·모델 설정
+    ├── models/                        # YOLO, S3D, VLM
+    ├── pipelines/                     # 행동 분석·탐지 PC 웹캠 실행
+    ├── services/                      # 실시간 화면·입력 감시
+    ├── tools/                         # 모델 확인·Qwen 서버 실행
+    └── training/                      # manifests, 학습 스크립트
 ```
 
 세부 설정과 사용법은 [백엔드 README](backend/README.md), [프런트엔드 README](frontend/README.md), [수요 서비스 README](storeops-demand/README.md), [CCTV 탐지 README](storeops_ai/README.md)를 참고하세요. 질문 Agent는 저장소 외부 PC에서 운영하며, 연결 값은 루트 `.env`에 설정합니다.
 
 ## 구성 및 주소
 
-| 서비스           | Compose 서비스 | 로컬 주소                                                | 용도                          |
-| ---------------- | -------------- | -------------------------------------------------------- | ----------------------------- |
-| 점주 프런트엔드  | `frontend`     | [http://localhost:5173](http://localhost:5173)           | 사건·발주 화면                |
-| 업무 백엔드      | `backend`      | [http://localhost:8000](http://localhost:8000)           | 인증, 사건 API, 서비스 프록시 |
-| 백엔드 API 문서  | `backend`      | [http://localhost:8000/docs](http://localhost:8000/docs) | OpenAPI/Swagger               |
-| 수요·발주 서비스 | `demand`       | [http://localhost:8765](http://localhost:8765)           | 예측·발주 API 및 데모         |
-| CCTV 탐지 서비스 | `storeops-ai`  | [http://localhost:8100](http://localhost:8100)           | 영상 분석 API                 |
-| PostgreSQL       | `postgres`     | `localhost:5433`                                         | 업무 데이터 영속 저장         |
-| Qwen VLM 서버    | `qwen-vllm`    | `http://localhost:8001`                                  | CCTV 대표 이미지 설명         |
-| 질문 Agent       | 원격 Docker    | `http://<QNA_PC_IP>:8002`                                | 질문 처리 및 규정 검색        |
+| 서비스              | Compose 서비스 | 로컬 주소                                                | 용도                          |
+| ------------------- | -------------- | -------------------------------------------------------- | ----------------------------- |
+| 점주 프런트엔드     | `frontend`     | [http://localhost:5173](http://localhost:5173)           | 사건·발주 화면                |
+| 업무 백엔드         | `backend`      | [http://localhost:8000](http://localhost:8000)           | 인증, 사건 API, 서비스 프록시 |
+| 백엔드 API 문서     | `backend`      | [http://localhost:8000/docs](http://localhost:8000/docs) | OpenAPI/Swagger               |
+| 수요·발주 서비스    | `demand`       | [http://localhost:8765](http://localhost:8765)           | 예측·발주 API 및 데모         |
+| CCTV 탐지 API       | `storeops-ai`  | [http://localhost:8100](http://localhost:8100)           | 입력 영상·카메라 API          |
+| 탐지 PC 라이브 화면 | 호스트 실행기  | `http://<탐지PC_IP>:8101` (내부 전용)                    | 인증된 JPEG 화면 원본         |
+| PostgreSQL          | `postgres`     | `localhost:5433`                                         | 업무 데이터 영속 저장         |
+| Qwen VLM 서버       | `qwen-vllm`    | `http://localhost:8001`                                  | CCTV 대표 이미지 설명         |
+| 질문 Agent          | 원격 Docker    | `http://<QNA_PC_IP>:8002`                                | 질문 처리 및 규정 검색        |
 
-프런트엔드 개발 서버와 Nginx는 `/api`를 백엔드로, `/detector`를 메인 PC의 CCTV 탐지 서비스로 프록시합니다. 감시용 Qwen VLM은 메인 PC Compose에서 실행하지만 질문 Agent와 텍스트 LLM은 별도 PC에서 운영합니다. 브라우저는 백엔드만 호출하고 수요·질문 서비스 인증 토큰은 백엔드가 보관합니다. 원격 Agent 주소는 `STOREOPS_QNA_URL`, 공유 토큰은 `STOREOPS_QNA_TOKEN`으로 설정합니다.
+브라우저는 백엔드의 `/api`만 호출합니다. USB 카메라는 탐지 PC에 연결하며, 탐지 PC의 `pipelines/path1_webcam.py`가 영상을 읽고 YOLO·S3D로 연속 분석합니다. 이상행동 후보는 VLM 게이트가 확인하며, 기본 설정은 VLM 오류 시 사건을 놓치지 않도록 fail-open입니다. 백엔드는 점주 세션을 확인한 뒤 탐지 PC의 인증된 JPEG를 중계하고 사건을 저장합니다. 브라우저는 탐지 PC 포트에 직접 접근하지 않습니다. 감시용 Qwen VLM은 Compose 또는 별도 PC에서 실행할 수 있고, 질문 Agent와 텍스트 LLM은 별도 PC에서 운영합니다.
 
 ## 개발환경 가이드
 
@@ -112,7 +110,7 @@ nvidia-smi
 
 | 기능                       | 버전 및 하드웨어                                                                                                  | 모델 준비 및 실행                                                                                                                                                           |
 | -------------------------- | ----------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| CCTV 행동 탐지             | Python 3.12 권장, PyTorch 2.0 이상, torchvision 0.15 이상. CPU 가능, NVIDIA GPU는 선택                            | YOLO 및 S3D 가중치가 저장소에 포함됩니다. 아래 CCTV 환경을 준비하고 `python -m tools.verify_i3d`로 확인합니다.                                                              |
+| CCTV 행동 탐지             | Python 3.12 권장, PyTorch 2.0 이상, torchvision 0.15 이상. CPU 가능, NVIDIA GPU는 선택                            | YOLO 파일은 포함되지만 운영 S3D/C1/P 가중치는 Git에서 제외됩니다. 별도 전달받은 가중치를 준비하고 [CCTV 탐지 README](storeops_ai/README.md)를 따르세요.                     |
 | 수요 예측                  | Python 3.12, pandas 3.0.6, xgboost-cpu 3.4.1, scikit-learn 1.9.1. GPU 불필요                                      | 학습 모델이 포함되어 있습니다. 단독 실행은 [수요 서비스 README](storeops-demand/README.md), 전체 연동은 Docker Compose를 사용합니다.                                        |
 | 점주 질문 서비스           | 원격 Agent·LLM PC                                                                                                 | 질문 Agent와 텍스트 LLM은 이 저장소의 Compose에 포함되지 않습니다. 원격 서비스 주소와 공유 토큰을 `.env`에 설정합니다.                                                      |
 | CCTV 이미지 설명(Qwen VLM) | WSL2 Ubuntu 26.04.1, Python 3.14, PyTorch 2.13.0+cu130, CUDA 13.0, FlashInfer 0.6.18.post1, vLLM. NVIDIA GPU 필요 | Qwen3-VL-8B-Instruct-FP8 모델을 내려받습니다. RTX A4000 16GB에서 검증된 구성입니다. 전체 설치 절차는 [CCTV 탐지 README](storeops_ai/README.md)의 WSL2/vLLM 항목을 따릅니다. |
@@ -155,9 +153,12 @@ Docker Desktop과 Docker Compose가 필요합니다. 프로젝트 루트의 `.en
 STOREOPS_DEMAND_TOKENS_JSON={"S01":"demo-owner-s01"}
 STOREOPS_AI_INGEST_TOKENS_JSON={"<탐지-토큰>":"S01"}
 STOREOPS_AI_INGEST_TOKEN=<탐지-토큰>
+STOREOPS_AI_LIVE_URL=http://<탐지PC_IP>:8101
 STOREOPS_QNA_TOKEN=<질문-서비스-공유-토큰>
 STOREOPS_QNA_URL=http://<QNA_PC_IP>:8002
 ```
+
+백엔드와 탐지 프로그램이 같은 PC에 있으면 `STOREOPS_AI_LIVE_URL=http://host.docker.internal:8101`을 사용합니다. 탐지 PC가 별도 컴퓨터라면 백엔드 PC에서 접근할 수 있는 해당 PC의 IP 주소와 포트를 지정하고 방화벽에서 8101을 허용하세요.
 
 수요 컨테이너는 현재 `STOREOPS_DEMO=1`로 실행되므로 데모 토큰은 `demo-owner-s01`로 고정되어 있습니다. 백엔드의 수요 토큰 맵은 매장 ID를 이 토큰에 연결합니다. 탐지 토큰 맵은 탐지 토큰을 매장 ID에 연결하며, `STOREOPS_AI_INGEST_TOKEN`은 탐지 컨테이너가 웹훅에 사용하는 토큰으로 맵의 토큰 키와 같아야 합니다. `STOREOPS_QNA_TOKEN`은 메인 백엔드와 원격 질문 Agent가 공유하는 필수 토큰입니다. 질문 모델 파일은 원격 Q&A PC에서 관리하며 메인 PC Compose에는 필요하지 않습니다. 새 데이터베이스에서 최초 생성되는 매장 ID는 보통 `S01`이지만, 기존 DB를 사용할 때에는 실제 가입 계정의 매장 ID에 맞추세요. 이 데모 토큰 설정을 운영망에 노출하지 마세요.
 
@@ -167,6 +168,15 @@ Compose의 Qwen VLM에는 Docker Desktop의 WSL2 NVIDIA GPU 지원이 필요하�
 docker compose up -d --build
 docker compose ps
 ```
+
+USB 웹캠은 Docker 컨테이너가 아니라 **웹캠이 연결된 탐지 PC 호스트**에서 실행해야 합니다. 가중치·토큰·웹훅 환경변수를 준비한 뒤 다음처럼 탐지 프로그램을 계속 실행합니다.
+
+```powershell
+cd storeops_ai
+python -u pipelines/path1_webcam.py --camera 0 --camera-id CAM-01
+```
+
+상세한 탐지 PC 준비 및 환경변수는 [CCTV 탐지 README](storeops_ai/README.md)를 참고하세요. 탐지 PC와 백엔드가 출력 폴더를 공유하지 않는 경우에는 탐지 프로그램 실행 전에 같은 PowerShell에서 `$env:STOREOPS_MEDIA_UPLOAD_ENABLED = '1'`을 설정하세요. 이 설정은 사건 본문에서 로컬 미디어 경로를 제외하고 영상과 대표 이미지를 백엔드로 업로드합니다. 점주는 프런트엔드에 로그인한 뒤 관제 탭에서 실시간 화면과 최근 사건 5건을 보고, 전체 이력은 사건 탭에서 확인합니다.
 
 컨테이너 로그는 서비스별로 확인할 수 있습니다.
 
@@ -208,12 +218,16 @@ npm run dev -- --host 0.0.0.0
 
 브라우저에서 [http://localhost:5173](http://localhost:5173)을 열고 회원가입 후 로그인합니다. 신규 매장은 시드 사건 없이 시작합니다. 사건 목록을 확인하려면 탐지 서비스에서 사건을 생성해 백엔드로 전송해야 합니다.
 
-## 사건 수신 흐름
+실시간 관제는 로그인 후 `관제` 탭에서 `화면 보기`를 누릅니다. 카메라는 탐지 PC가 열고 있어야 하며, 화면이 보이지 않으면 탐지 프로세스의 `LIVE_STREAM_ENABLED`, `EVENT_INGEST_TOKEN`과 백엔드의 `STOREOPS_AI_LIVE_URL`이 맞는지 확인합니다.
 
-CCTV 탐지 서비스가 분석 결과를 내부 사건 API에 보내면 백엔드는 토큰-매장 매핑을 확인하고 사건 ID와 매장을 결정해 PostgreSQL에 저장합니다. 탐지 서비스와 백엔드는 같은 출력 폴더를 공유합니다.
+## 카메라·사건 흐름
+
+탐지 PC가 카메라를 직접 열어 계속 분석합니다. 사건 후보가 VLM 검증을 통과하면 내부 사건 API로 전송되고, 백엔드는 토큰-매장 매핑을 확인해 사건을 저장합니다. 라이브 화면은 탐지 PC가 최신 JPEG를 발행하고 백엔드가 점주 세션 인증 후 중계합니다.
 
 ```text
-storeops_ai -> POST /api/internal/events -> backend -> PostgreSQL -> frontend
+USB 카메라 -> 탐지 PC(Path1Webcam: YOLO/S3D -> VLM 게이트)
+                         ├─ 사건 -> backend -> PostgreSQL -> 점주 사건 화면
+                         └─ JPEG -> backend /api/camera/live-frame -> 관제 화면
 ```
 
 전체 Compose 실행 후 입력 영상을 `storeops_ai/input/sample.mp4`에 두고 분석 요청을 보낼 수 있습니다.
@@ -236,8 +250,10 @@ Invoke-RestMethod http://localhost:8100/path1/analyze -Method Post -ContentType 
 | `POST`        | `/api/auth/login`                                           | 로그인 및 세션 발급             |
 | `POST`        | `/api/auth/logout`                                          | 세션 폐기                       |
 | `GET`         | `/api/auth/me`                                              | 현재 로그인 사용자 조회         |
-| `GET`         | `/api/events`                                               | 매장 사건 목록                  |
+| `GET`         | `/api/events?limit=5`                                       | 최근 사건 미리보기              |
+| `GET`         | `/api/events`                                               | 매장 전체 사건 목록             |
 | `GET`         | `/api/events/{event_id}`                                    | 사건 상세                       |
+| `GET`         | `/api/camera/live-frame?after={seq}`                        | 탐지 PC의 새 화면 JPEG 중계     |
 | `POST`        | `/api/events/{event_id}/status`                             | 사건 상태 변경                  |
 | `GET`         | `/api/events/{event_id}/history`                            | 상태 변경 이력                  |
 | `GET`         | `/api/events/{event_id}/clip`                               | 사건 영상                       |
@@ -246,6 +262,8 @@ Invoke-RestMethod http://localhost:8100/path1/analyze -Method Post -ContentType 
 | `POST`        | `/api/demand/orders/forecast-draft`                         | 수요 예측 기반 발주 초안 생성   |
 | `POST`        | `/api/demand/orders/drafts/{draft_id}/approve`              | 발주 초안 승인                  |
 | `POST`        | `/api/internal/events`                                      | Bearer 토큰 인증 탐지 사건 수신 |
+| `POST`        | `/api/internal/events/{event_id}/vlm`                       | VLM 검증 결과 반영              |
+| `PUT`         | `/api/internal/events/{event_id}/media/{media_type}`        | 사건 영상·대표 이미지 업로드    |
 | `POST`        | `/api/ask`                                                  | 로그인 점주의 운영 기록 질문    |
 | `GET`         | `/api/ask/{question_session_id}/log`                        | 질문 처리 도구 실행 로그 조회   |
 

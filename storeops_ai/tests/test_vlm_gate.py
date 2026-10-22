@@ -74,13 +74,13 @@ class VLMGateTest(unittest.TestCase):
         _, _, _, sent, _ = run(FakeVLM({"status": "VLM_NOT_CONFIGURED"}))
         self.assertEqual(sent, ["E1"])
 
-    def test_all_clip_frames_are_sent(self):
+    def test_vlm_receives_first_middle_and_last_clip_frames(self):
         vlm = FakeVLM({**GOOD, "confirmed": True})
         run(vlm)
         self.assertEqual((vlm.calls[0]["frame_count"], vlm.calls[0]["clip_seconds"]), (18, 4.0))
         seen = []
         VLMAnalyzer(transport=lambda imgs, ctx: seen.append(imgs) or {**GOOD, "confirmed": True}).verify([f"{i}.jpg" for i in range(18)], {})
-        self.assertEqual(len(seen[0]), 18)
+        self.assertEqual(seen[0], ["0.jpg", "9.jpg", "17.jpg"])
 
     def test_save_all_images(self):
         import tempfile
