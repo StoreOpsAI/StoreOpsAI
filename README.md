@@ -176,7 +176,7 @@ cd storeops_ai
 python -u pipelines/path1_webcam.py --camera 0 --camera-id CAM-01
 ```
 
-상세한 탐지 PC 준비 및 환경변수는 [CCTV 탐지 README](storeops_ai/README.md)를 참고하세요. 점주는 프런트엔드에 로그인한 뒤 관제 탭에서 실시간 화면과 최근 사건 5건을 보고, 전체 이력은 사건 탭에서 확인합니다.
+상세한 탐지 PC 준비 및 환경변수는 [CCTV 탐지 README](storeops_ai/README.md)를 참고하세요. 탐지 PC와 백엔드가 출력 폴더를 공유하지 않는 경우에는 탐지 프로그램 실행 전에 같은 PowerShell에서 `$env:STOREOPS_MEDIA_UPLOAD_ENABLED = '1'`을 설정하세요. 이 설정은 사건 본문에서 로컬 미디어 경로를 제외하고 영상과 대표 이미지를 백엔드로 업로드합니다. 점주는 프런트엔드에 로그인한 뒤 관제 탭에서 실시간 화면과 최근 사건 5건을 보고, 전체 이력은 사건 탭에서 확인합니다.
 
 컨테이너 로그는 서비스별로 확인할 수 있습니다.
 
