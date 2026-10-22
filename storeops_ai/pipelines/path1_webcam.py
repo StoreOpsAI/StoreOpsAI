@@ -1039,7 +1039,7 @@ class Path1Webcam:
                         cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 255, 255), 2)
             cv2.imshow(win, annotated)
             if live is not None:
-                live.publish(annotated)   # 대시보드에도 데모 창과 같은 화면
+                live.publish(frame)   # 대시보드에는 분석 표시 없는 원본 카메라 화면(사용자 결정 2026-10-22). _draw는 복사본에 그린다
 
             key = cv2.waitKey(1) & 0xFF
             if key in (27, ord("q"), ord("Q")):
