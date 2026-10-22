@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { getCurrentUser, logIn, logOut, signUp } from "./api/auth";
 import { fetchLiveFrame } from "./api/camera";
 import {
@@ -70,6 +70,14 @@ function formatDate(value) {
   }).format(new Date(value));
 }
 
+function formatClock(value) {
+  if (!value) return "아직 갱신 전";
+  return new Intl.DateTimeFormat("ko-KR", {
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(value);
+}
+
 function StatusBadge({ status }) {
   // 상태별 CSS 클래스는 배지의 의미와 색상을 함께 결정합니다.
   return (
@@ -123,6 +131,77 @@ function EventList({ events, selectedId, onSelect }) {
         </button>
       ))}
     </div>
+  );
+}
+
+function RecentEventsPanel({
+  events,
+  loadState,
+  error,
+  updatedAt,
+  isRefreshing,
+  onRefresh,
+  onSelect,
+  onViewAll,
+}) {
+  const unreadCount = events.filter(
+    (event) => event.status === "unconfirmed",
+  ).length;
+
+  return (
+    <aside className="recent-events-panel" aria-label="최근 사건">
+      <header className="recent-events-heading">
+        <div>
+          <span className="panel-label">EVENT FEED · 최근 5건</span>
+          <h2>
+            감지 사건 <em>{events.length}</em>
+          </h2>
+        </div>
+        <button
+          type="button"
+          className="icon-refresh-button"
+          onClick={onRefresh}
+          disabled={isRefreshing}
+          aria-label="최근 사건 새로고침"
+          title="새로고침"
+        >
+          ↻
+        </button>
+      </header>
+      <div className="recent-events-meta">
+        <span>{unreadCount}건 미확인</span>
+        <span>{formatClock(updatedAt)} 갱신</span>
+      </div>
+      {error && events.length > 0 && (
+        <p className="recent-events-warning" role="status">
+          새 사건을 불러오지 못했습니다.
+        </p>
+      )}
+      {loadState === "loading" && (
+        <div className="recent-events-state">
+          최근 사건을 불러오는 중입니다.
+        </div>
+      )}
+      {loadState === "error" && (
+        <div className="recent-events-state recent-events-error">
+          <p>{error}</p>
+          <button type="button" className="text-button" onClick={onRefresh}>
+            다시 시도
+          </button>
+        </div>
+      )}
+      {loadState === "empty" && (
+        <div className="recent-events-state">아직 감지된 사건이 없습니다.</div>
+      )}
+      {loadState === "success" && (
+        <div className="recent-event-list">
+          <EventList events={events} onSelect={onSelect} />
+        </div>
+      )}
+      <button type="button" className="recent-events-all" onClick={onViewAll}>
+        전체 사건 보기 <span aria-hidden="true">→</span>
+      </button>
+    </aside>
   );
 }
 
@@ -1177,13 +1256,22 @@ function WebcamMonitor({ storeId }) {
           {cameraState === "live" && frameUrl ? (
             <img src={frameUrl} alt="탐지 중인 매장 카메라 화면" />
           ) : (
-            <span>{cameraState === "live" ? "화면을 받는 중입니다" : "화면이 꺼져 있습니다"}</span>
+            <span>
+              {cameraState === "live"
+                ? "화면을 받는 중입니다"
+                : "화면이 꺼져 있습니다"}
+            </span>
           )}
         </div>
         <div className="camera-controls">
           <p className="panel-label">행동 분석</p>
-          <strong>{cameraState === "live" ? "탐지 PC에서 계속 분석 중" : "대기 중"}</strong>
-          <p>이상 후보가 나오면 VLM이 확인한 뒤 맞는 경우에만 사건 목록에 경보로 올라옵니다.</p>
+          <strong>
+            {cameraState === "live" ? "탐지 PC에서 계속 분석 중" : "대기 중"}
+          </strong>
+          <p>
+            이상 후보가 나오면 VLM이 확인한 뒤 맞는 경우에만 사건 목록에 경보로
+            올라옵니다.
+          </p>
           {error && (
             <p className="camera-error" role="alert">
               {error}
@@ -1218,6 +1306,11 @@ function App() {
   const [activeTab, setActiveTab] = useState("camera");
   const [health, setHealth] = useState("연결 확인 중");
   const [events, setEvents] = useState([]);
+  const [recentEvents, setRecentEvents] = useState([]);
+  const [recentLoadState, setRecentLoadState] = useState("loading");
+  const [recentError, setRecentError] = useState("");
+  const [recentUpdatedAt, setRecentUpdatedAt] = useState(null);
+  const [isRecentRefreshing, setIsRecentRefreshing] = useState(false);
   const [selectedEvent, setSelectedEvent] = useState(null);
   const [loadState, setLoadState] = useState("loading");
   const [error, setError] = useState("");
@@ -1241,51 +1334,58 @@ function App() {
       .catch(() => setAuthState("unauthenticated"));
   }, []);
 
-  const loadEvents = async ({ background = false } = {}) => {
-    // 목록을 새로 읽은 뒤 첫 번째 사건을 기본 선택 상태로 맞춥니다.
-    if (!background) {
-      setLoadState("loading");
-      setError("");
-    }
+  const loadEvents = async () => {
+    setLoadState("loading");
+    setError("");
     try {
       const data = await getEvents();
       setEvents(data.events);
       setLoadState(data.events.length ? "success" : "empty");
       setError("");
-      if (background) {
-        setSelectedEvent(
-          (currentEvent) =>
-            data.events.find(
-              (event) => event.event_id === currentEvent?.event_id,
-            ) ??
-            data.events[0] ??
-            null,
-        );
-      } else {
-        setSelectedEvent(
-          data.events[0] ? await getEvent(data.events[0].event_id) : null,
-        );
-      }
+      setSelectedEvent(
+        data.events[0] ? await getEvent(data.events[0].event_id) : null,
+      );
     } catch (requestError) {
-      if (!background) {
-        setError(requestError.message);
-        setLoadState("error");
-      }
+      setError(requestError.message);
+      setLoadState("error");
     }
   };
 
+  const loadRecentEvents = async ({ background = false } = {}) => {
+    if (!background) {
+      setIsRecentRefreshing(true);
+      setRecentError("");
+      if (!recentEvents.length) setRecentLoadState("loading");
+    }
+    try {
+      const data = await getEvents({ limit: 5 });
+      const latestEvents = data.events.slice(0, 5);
+      setRecentEvents(latestEvents);
+      setRecentLoadState(latestEvents.length ? "success" : "empty");
+      setRecentUpdatedAt(new Date());
+      setRecentError("");
+    } catch (requestError) {
+      setRecentError(requestError.message);
+      if (!recentEvents.length) setRecentLoadState("error");
+    } finally {
+      if (!background) setIsRecentRefreshing(false);
+    }
+  };
+
+  const refreshRecentEvents = useEffectEvent(() =>
+    loadRecentEvents({ background: true }),
+  );
+
   useEffect(() => {
-    if (authState === "authenticated") loadEvents();
+    if (authState === "authenticated") refreshRecentEvents();
   }, [authState]);
 
   useEffect(() => {
-    if (authState !== "authenticated") return undefined;
-    const refreshTimer = window.setInterval(
-      () => loadEvents({ background: true }),
-      5000,
-    );
+    if (authState !== "authenticated" || activeTab !== "camera")
+      return undefined;
+    const refreshTimer = window.setInterval(() => refreshRecentEvents(), 15000);
     return () => window.clearInterval(refreshTimer);
-  }, [authState]);
+  }, [authState, activeTab]);
 
   if (authState === "loading")
     return <div className="auth-loading">세션을 확인하는 중입니다...</div>;
@@ -1314,6 +1414,17 @@ function App() {
     }
   };
 
+  const handleRecentEventSelect = async (eventId) => {
+    setActiveTab("events");
+    await loadEvents();
+    await handleSelect(eventId);
+  };
+
+  const handleOpenEvents = () => {
+    setActiveTab("events");
+    loadEvents();
+  };
+
   const handleStatusChange = async (nextStatus) => {
     // 중복 제출을 막고, 성공 응답을 목록과 상세 화면에 동시에 반영합니다.
     setIsSubmitting(true);
@@ -1324,6 +1435,11 @@ function App() {
       );
       setSelectedEvent(updatedEvent);
       setEvents((currentEvents) =>
+        currentEvents.map((event) =>
+          event.event_id === updatedEvent.event_id ? updatedEvent : event,
+        ),
+      );
+      setRecentEvents((currentEvents) =>
         currentEvents.map((event) =>
           event.event_id === updatedEvent.event_id ? updatedEvent : event,
         ),
@@ -1360,14 +1476,17 @@ function App() {
       <nav className="main-nav" aria-label="주요 업무">
         <button
           className={activeTab === "camera" ? "active" : ""}
-          onClick={() => setActiveTab("camera")}
+          onClick={() => {
+            setActiveTab("camera");
+            loadRecentEvents();
+          }}
           type="button"
         >
           <span>01</span> 관제
         </button>
         <button
           className={activeTab === "events" ? "active" : ""}
-          onClick={() => setActiveTab("events")}
+          onClick={handleOpenEvents}
           type="button"
         >
           <span>02</span> 사건
@@ -1428,7 +1547,19 @@ function App() {
           )}
         </div>
         {activeTab === "camera" ? (
-          <WebcamMonitor storeId={user.store_id} />
+          <div className="camera-dashboard">
+            <WebcamMonitor storeId={user.store_id} />
+            <RecentEventsPanel
+              events={recentEvents}
+              loadState={recentLoadState}
+              error={recentError}
+              updatedAt={recentUpdatedAt}
+              isRefreshing={isRecentRefreshing}
+              onRefresh={loadRecentEvents}
+              onSelect={handleRecentEventSelect}
+              onViewAll={handleOpenEvents}
+            />
+          </div>
         ) : activeTab === "orders" ? (
           <OrderPanel />
         ) : activeTab === "questions" ? (

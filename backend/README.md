@@ -11,6 +11,7 @@ StoreOps AI 웹 애플리케이션의 FastAPI 백엔드입니다. 점주 인증�
 
 - 점주 회원가입·로그인·로그아웃 및 `X-Session-ID` 세션 인증
 - 매장별 사건 목록, 상세, 상태 변경, 이력 및 미디어 조회
+- 점주 세션과 매장별 탐지 토큰을 확인한 뒤 실시간 카메라 JPEG를 중계
 - 탐지 토큰과 매장 매핑을 이용한 내부 사건 수신
 - 매장별 인증 토큰을 사용하는 수요·발주 서비스 프록시
 - `DATABASE_URL` 설정에 따른 PostgreSQL 또는 메모리 저장소 선택
@@ -50,6 +51,8 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 | `STOREOPS_DEMAND_TOKENS_JSON`    | `{}`                    | 매장 ID를 수요 서비스 토큰에 대응시키는 JSON 객체입니다.                            |
 | `STOREOPS_DEMAND_TOKEN`          | 미설정                  | 매장별 토큰 맵에 항목이 없을 때 사용하는 선택적 대체 토큰입니다.                    |
 | `STOREOPS_AI_INGEST_TOKENS_JSON` | 미설정                  | CCTV 탐지 토큰을 매장 ID에 대응시키는 JSON 객체입니다.                              |
+| `STOREOPS_AI_LIVE_URL`           | `http://localhost:8101` | 탐지 PC의 인증된 `/live/frame` 주소입니다. 분리 운영에서는 탐지 PC 주소를 지정합니다. |
+| `STOREOPS_AI_LIVE_TIMEOUT_SEC`   | `15`                    | 탐지 PC의 새 카메라 화면을 기다리는 최대 시간입니다.                                |
 | `STOREOPS_QNA_URL`               | `http://127.0.0.1:8002` | 질문 Agent 내부 API 주소입니다. Compose에서는 루트 `.env`의 원격 Agent LAN 주소를 사용합니다. |
 | `STOREOPS_QNA_TOKEN`             | 미설정                  | 질문 Agent와 공유하는 서버 간 인증 토큰입니다. 질문 기능에 필요합니다.              |
 
@@ -87,6 +90,8 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 | `POST`        | `/api/auth/logout`                                          | 세션 헤더   | 세션 폐기                         |
 | `GET`         | `/api/auth/me`                                              | 세션 헤더   | 로그인 사용자 조회                |
 | `GET`         | `/api/events`                                               | 세션 헤더   | 매장 사건 목록 조회               |
+| `GET`         | `/api/events?limit=5`                                       | 세션 헤더   | 관제 화면용 최신 사건 제한 조회   |
+| `GET`         | `/api/camera/live-frame?after={seq}`                        | 세션 헤더   | 탐지 PC의 새 카메라 화면 중계     |
 | `GET`         | `/api/events/{event_id}`                                    | 세션 헤더   | 사건 상세 조회                    |
 | `POST`        | `/api/events/{event_id}/status`                             | 세션 헤더   | 사건 상태 변경                    |
 | `GET`         | `/api/events/{event_id}/history`                            | 세션 헤더   | 상태 변경 이력 조회               |
@@ -111,6 +116,8 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ### CCTV 탐지 서비스
 
 탐지 서비스가 `POST /api/internal/events`로 사건을 보낼 때 Bearer 토큰을 확인하고, `STOREOPS_AI_INGEST_TOKENS_JSON`의 서버 측 매핑으로 매장을 결정합니다. 비동기 VLM 결과는 `POST /api/internal/events/{event_id}/vlm`에서 같은 토큰과 매장 소유권을 확인한 뒤 반영합니다. 요청 본문으로 전달된 매장 ID는 권한 판정에 사용하지 않습니다. 사건 영상과 이미지를 브라우저에서 조회하려면 백엔드와 탐지 서비스가 같은 출력 파일을 볼 수 있도록 공유 볼륨과 `STOREOPS_OUTPUT_DIR`을 맞춰야 합니다.
+
+USB 웹캠은 탐지 PC에서 직접 열며, 백엔드는 `STOREOPS_AI_LIVE_URL`로 탐지 PC의 인증된 화면 스트림을 호출해 점주 세션에 중계합니다. 브라우저에 탐지 토큰이나 탐지 PC 포트를 노출하지 않습니다.
 
 ### 점주 질문 서비스
 

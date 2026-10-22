@@ -5,7 +5,7 @@
 
 # StoreOps AI 프런트엔드
 
-StoreOps AI 점주용 웹 애플리케이션입니다. React 19와 Vite를 사용하며, 로그인한 점주가 사건을 처리하고 발주 초안을 관리하며 매장 기록과 점검 규정을 질문할 수 있습니다.
+StoreOps AI 점주용 웹 애플리케이션입니다. React 19와 Vite를 사용하며, 로그인한 점주가 탐지 PC의 실시간 카메라 화면과 최근 사건을 함께 확인하고 사건을 처리하며 발주 초안·매장 질문을 관리합니다.
 
 ## 요구 사항
 
@@ -31,6 +31,7 @@ npm run dev -- --host 0.0.0.0
 - `src/App.jsx`: 인증, 사건, 발주, 질문 화면
 - `src/api/client.js`: 공통 HTTP 요청과 오류 처리
 - `src/api/auth.js`: 회원가입, 로그인, 로그아웃, 현재 사용자 API
+- `src/api/camera.js`: 로그인 세션으로 실시간 탐지 화면 조회
 - `src/api/events.js`: 사건 API 호출 함수
 - `src/api/demand.js`: 발주 API 호출 함수
 - `src/api/questions.js`: 점주 질문 및 질문 로그 API 호출
@@ -43,17 +44,18 @@ npm run lint
 npm run build
 ```
 
-## 프록시와 질문 기능
+## 카메라 화면과 API 프록시
 
-Vite 개발 서버는 `/api` 요청을 `http://localhost:8000`으로 프록시합니다. `/detector` 요청은 접두사 `/detector`를 제거한 뒤 `http://localhost:8100`의 CCTV 탐지 API로 전달합니다. 주소가 다르면 Vite 실행 전에 `VITE_API_PROXY_TARGET` 또는 `VITE_DETECTOR_PROXY_TARGET` 환경변수를 지정하세요.
+Vite 개발 서버와 Nginx는 `/api`만 백엔드로 프록시합니다. 점주 브라우저는 탐지 PC 포트에 직접 연결하지 않습니다. 관제 화면은 로그인 세션으로 `/api/camera/live-frame?after={seq}`를 롱폴링하고, 백엔드가 내부 탐지 토큰을 사용해 탐지 PC의 새 JPEG 화면을 중계합니다. 개발 백엔드 주소가 다르면 Vite 실행 전에 `VITE_API_PROXY_TARGET`을 지정하세요.
 
 ```powershell
 $env:VITE_API_PROXY_TARGET = "http://localhost:8000"
-$env:VITE_DETECTOR_PROXY_TARGET = "http://localhost:8100"
 npm run dev -- --host 0.0.0.0
 ```
 
-보호 API에는 로그인 응답의 `session_id`가 `X-Session-ID` 헤더로 전달됩니다. 새 매장에는 사건이 자동으로 생성되지 않으므로 CCTV 탐지 서비스에서 사건을 수신해야 목록에 데이터가 표시됩니다.
+보호 API에는 로그인 응답의 `session_id`가 `X-Session-ID` 헤더로 전달됩니다. 관제 화면은 최근 사건 5건만 요청하며, 사건 탭은 전체 이력을 조회합니다. USB 웹캠은 브라우저가 아니라 탐지 PC에 연결합니다.
+
+## 질문 기능
 
 질문 화면은 `/api/ask`로 요청하고, `/api/ask/{question_session_id}/log`에서 실행 도구와 조회 로그를 가져옵니다. 이 기능을 사용하려면 백엔드뿐 아니라 `qna-agent`, `qna-llm`과 필요한 모델·규정 데이터도 준비되어야 합니다. 수요·질문 서비스와 전체 실행 방법은 [프로젝트 README](../README.md)를 참고하세요.
 
