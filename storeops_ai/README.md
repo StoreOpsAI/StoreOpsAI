@@ -88,14 +88,16 @@ FastAPI 시작 시 Path 2 감시 스케줄러와 `input/` 폴더 감시기가 �
 | 파일 | 내용 |
 | ---- | ---- |
 | `s3d_c1_6.pt` | 사람 크롭 S3D(C1), 6클래스 |
-| `pose_head6.pt` / `fusion_c1p.json` | C1+P (환경변수로 바꿀 때) |
-| `pose_head6_rel.pt` / `fusion_c1pr.json` | C1+(P+R) 관절+사람-물건 관계 (**기본값**, 데모 설정) |
+| `pose_head6.pt` / `fusion_c1p.json` | C1+P (기본값) |
+| `pose_head6_rel.pt` / `fusion_c1pr.json` | C1+(P+R) 관절+사람-물건 관계 (권장) |
 | `object_det.pt` | 물건 탐지기 (P+R 헤드일 때만) |
 
-실행(탐지 PC, 웹캠을 직접 엽니다). 모델·추적기(`config/botsort_storeops.yaml`)·사람 검출 문턱(0.6)은 기본값이 데모 설정이라 따로 줄 필요가 없습니다:
+권장 실행(탐지 PC, 웹캠을 직접 엽니다):
 
 ```bash
 cd storeops_ai
+export C1P_POSE_HEAD_PATH=training/runs/ours_stack/pose_head6_rel.pt
+export C1P_FUSION_PATH=training/runs/ours_stack/fusion_c1pr.json
 export EVENT_INGEST_TOKEN=<매장 탐지 토큰>          # 실시간 화면·사건 전송 인증
 export ALERT_WEBHOOK_URL=http://<백엔드>:8000/api/internal/events
 export VLM_RESULT_WEBHOOK_URL=http://<백엔드>:8000/api/internal/events/{event_id}/vlm
@@ -105,7 +107,7 @@ python -u pipelines/path1_webcam.py --camera 0
 
 - 경보 후보가 나면 클립 프레임을 VLM에 보내 맞다고 할 때만 백엔드로 최종 경보를 보냅니다(`utils/vlm_gate.py`).
 - 대시보드 LIVE CAMERA는 백엔드 `/api/camera/live-frame`을 거쳐 이 프로그램의 원본 화면(`LIVE_STREAM_PORT`, 기본 8101)을 보여 줍니다.
-- 이 카메라 보정값(`output/calibration/<카메라>.json`)이 없으면 켜자마자 자동 보정합니다: **화면을 비운 채로 켜고** 빈 화면 20초 → 사람이 약 40초 걸어 다닙니다. 다음 실행부터 저장된 값을 씁니다. 다시 보정하려면 창에서 `c` 또는 보정 버튼.
+- 첫 실행은 빈 화면 20초 + 걷기 40초 자동 보정을 합니다.
 
 ## 행동분류 모델 연결 (FR-EVT-05)
 
