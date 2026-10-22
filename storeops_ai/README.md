@@ -85,23 +85,21 @@ USB 웹캠 실시간 분석은 FastAPI 컨테이너가 아니라 웹캠이 연�
 `서비스_6클래스_가중치_v2.0.zip`을 풀어 `ours_stack` 폴더를 `storeops_ai/training/runs/ours_stack/`에 둡니다.
 압축 안 `SHA256SUMS.txt`로 파일이 맞는지 확인합니다.
 
-| 파일                                     | 내용                                |
-| ---------------------------------------- | ----------------------------------- |
-| `s3d_c1_6.pt`                            | 사람 크롭 S3D(C1), 6클래스          |
-| `pose_head6.pt` / `fusion_c1p.json`      | C1+P (기본값)                       |
-| `pose_head6_rel.pt` / `fusion_c1pr.json` | C1+(P+R) 관절+사람-물건 관계 (권장) |
-| `object_det.pt`                          | 물건 탐지기 (P+R 헤드일 때만)       |
+| 파일                                     | 내용                                                  |
+| ---------------------------------------- | ----------------------------------------------------- |
+| `s3d_c1_6.pt`                            | 사람 크롭 S3D(C1), 6클래스                            |
+| `pose_head6.pt` / `fusion_c1p.json`      | C1+P (환경변수로 바꿀 때)                             |
+| `pose_head6_rel.pt` / `fusion_c1pr.json` | C1+(P+R) 관절+사람-물건 관계 (**기본값**, 데모 설정) |
+| `object_det.pt`                          | 물건 탐지기 (P+R 헤드일 때만)                         |
 
 운영 가중치는 Git에 포함되지 않으므로 별도로 전달받아 배치해야 합니다. Qwen
 Compose는 프롬프트당 이미지 최대 3장을 허용하며, VLM 게이트 기본 입력도
 처음·가운데·끝 3장입니다.
 
-권장 실행(탐지 PC, 웹캠을 직접 엽니다):
+실행(탐지 PC, 웹캠을 직접 엽니다). 모델·추적기(`config/botsort_storeops.yaml`)·사람 검출 문턱(0.6)은 기본값이 데모 설정이라 따로 줄 필요가 없습니다:
 
 ```bash
 cd storeops_ai
-export C1P_POSE_HEAD_PATH=training/runs/ours_stack/pose_head6_rel.pt
-export C1P_FUSION_PATH=training/runs/ours_stack/fusion_c1pr.json
 export EVENT_INGEST_TOKEN=<매장 탐지 토큰>          # 실시간 화면·사건 전송 인증
 export STOREOPS_MEDIA_UPLOAD_ENABLED=1              # 별도 PC 배치 시 사건 미디어 업로드
 export ALERT_WEBHOOK_URL=http://<백엔드>:8000/api/internal/events
@@ -113,14 +111,14 @@ python -u pipelines/path1_webcam.py --camera 0
 - 경보 후보가 나면 처음·가운데·끝 프레임을 VLM에 보내 행동이 확인될 때만 백엔드로 최종 사건을 보냅니다(`utils/vlm_gate.py`).
 - 대시보드 LIVE CAMERA는 백엔드 `/api/camera/live-frame`을 거쳐 이 프로그램의 원본 화면(`LIVE_STREAM_PORT`, 기본 8101)을 보여 줍니다.
 - 점주 브라우저는 탐지 PC 포트에 직접 연결하지 않습니다. 백엔드가 점주 세션과 내부 탐지 토큰을 확인해 화면을 중계합니다.
-- 첫 실행은 빈 화면 20초 + 걷기 40초 자동 보정을 합니다.
+- 이 카메라 보정값(`output/calibration/<카메라>.json`)이 없으면 켜자마자 자동 보정합니다: **화면을 비운 채로 켜고** 빈 화면 20초 → 사람이 약 40초 걸어 다닙니다. 다음 실행부터 저장된 값을 씁니다. 다시 보정하려면 창에서 `c` 또는 보정 버튼.
 
 ## 행동분류 모델 연결 (FR-EVT-05)
 
 기본 `STACK_MODE=c1p`는 사람 크롭 S3D와 자세 분류 헤드를 결합해 6개 행동
-카테고리를 분류합니다. `training/runs/ours_stack/s3d_c1_6.pt`, `pose_head6.pt`,
-`fusion_c1p.json`이 필요하며, 하나라도 없으면 탐지기가 시작되지 않습니다.
-물건 관계를 포함하려면 `pose_head6_rel.pt`와 `fusion_c1pr.json`을 설정합니다.
+카테고리를 분류합니다. 기본값은 물건 관계를 포함한 C1+(P+R)이라 `training/runs/ours_stack/s3d_c1_6.pt`,
+`pose_head6_rel.pt`, `fusion_c1pr.json`, `object_det.pt`가 필요하며, 하나라도 없으면 탐지기가 시작되지 않습니다.
+C1+P로 바꾸려면 `C1P_POSE_HEAD_PATH`·`C1P_FUSION_PATH`를 `pose_head6.pt`·`fusion_c1p.json`으로 설정합니다.
 
 이전 `STACK_MODE=a_c1` 호환 모드는 화면 전체(A)·사람 크롭(C1) S3D와
 `fusion.json`을 사용합니다. 이 모드는 정상·쓰러짐·쓰레기 투기·절도 4개 점수를

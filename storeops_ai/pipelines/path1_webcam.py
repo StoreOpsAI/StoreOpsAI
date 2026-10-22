@@ -740,7 +740,7 @@ class Path1Webcam:
         next_track_infer = {}
         latest = None
         start_clock = time.time()
-        if os.getenv("LAB_AUTO_CALIB") == "1":   # 실험용: 켜자마자 보정 시작('c'를 누른 것과 같다)
+        if os.getenv("LAB_AUTO_CALIB") == "1" or self.calibration is None:   # 이 카메라 보정값이 없으면(첫 설치) 켜자마자 보정, LAB_AUTO_CALIB=1이면 항상
             self.calibrator.start(0.0)
         raw_path, raw_writer, raw_ts = os.getenv("LAB_RAW_PATH", ""), None, []
         next_sample_wall = 0.0

@@ -38,8 +38,8 @@ AUTO_ANALYSIS_DEFAULT_CAMERA_ID = os.getenv("AUTO_ANALYSIS_DEFAULT_CAMERA_ID", "
 
 # FR-EVT-01~02
 YOLO_MODEL_PATH = os.getenv("YOLO_MODEL_PATH", "yolo11s-pose.pt")   # 사람 박스·추적·관절을 한 번에(2026-10-15 사용자 결정). 이전 YOLO11n은 환경변수로 되돌릴 수 있다
-TRACKER_CONFIG = os.getenv("TRACKER_CONFIG", "bytetrack.yaml")
-CONF_THRESHOLD = float(os.getenv("CONF_THRESHOLD", "0.25"))
+TRACKER_CONFIG = os.getenv("TRACKER_CONFIG", str(BASE_DIR / "config" / "botsort_storeops.yaml"))   # 데모·시연 설정(실행 폴더와 무관하게)
+CONF_THRESHOLD = float(os.getenv("CONF_THRESHOLD", "0.6"))   # 데모·시연 설정(BoT-SORT 논문 기본 검출 임계값 τ=0.6)
 POSE_IMGSZ = int(os.getenv("POSE_IMGSZ", "1280"))   # 포즈 모델 입력 크기. 관절 헤드 P 학습 캐시(storeops_ai_fr_evt POSE_IMGSZ=1280)와 같게(2026-10-20 사용자 결정, 의사결정_정리 §19)
 PERSON_CLASS_ID = 0
 
@@ -55,12 +55,12 @@ EXPANDED_CROP_CATEGORIES: set = set()
 STACK_MODE = os.getenv("STACK_MODE", "c1p")
 _C1P_DIR = BASE_DIR / "training" / "runs" / "ours_stack"
 C1P_CROP_WEIGHT_PATH = os.getenv("C1P_CROP_WEIGHT_PATH", str(_C1P_DIR / "s3d_c1_6.pt"))       # 연구 finetune_s3d_c16_audit/s3d_fold-1.pt
-C1P_POSE_HEAD_PATH = os.getenv("C1P_POSE_HEAD_PATH", str(_C1P_DIR / "pose_head6.pt"))         # 연구 pose_head6_audit/pose_fold-1.pt
+C1P_POSE_HEAD_PATH = os.getenv("C1P_POSE_HEAD_PATH", str(_C1P_DIR / "pose_head6_rel.pt"))   # 기본 C1+(P+R)(데모 설정). C1+P는 pose_head6.pt
 OBJECT_DETECTOR_PATH = os.getenv("OBJECT_DETECTOR_PATH", str(_C1P_DIR / "object_det.pt"))     # P+R 헤드일 때만 쓴다. 연구 물건 탐지기(학습·추론 설정 object_infer.py와 같게)
 OBJECT_IMG_SIDE = int(os.getenv("OBJECT_IMG_SIDE", "1280"))                                  # 연구 OBJECT_FT_IMG_SIDE
 OBJECT_INFER_CONF = float(os.getenv("OBJECT_INFER_CONF", "0.10"))                            # 연구 INFER_CONF(R 학습 입력과 같아야 한다)
 OBJECT_MAX_PER_FRAME = int(os.getenv("OBJECT_MAX_PER_FRAME", "30"))                          # 연구 MAX_PER_FRAME
-C1P_FUSION_PATH = os.getenv("C1P_FUSION_PATH", str(_C1P_DIR / "fusion_c1p.json"))             # 연구 export_c1p.py (날짜 OOF 임계값, SYB 제외)
+C1P_FUSION_PATH = os.getenv("C1P_FUSION_PATH", str(_C1P_DIR / "fusion_c1pr.json"))   # 기본 C1+(P+R). C1+P는 fusion_c1p.json. 연구 export_c1p.py(날짜 OOF 임계값, SYB 제외)
 USE_C1P = STACK_MODE == "c1p"
 if USE_C1P and not all(Path(p).is_file() for p in (C1P_CROP_WEIGHT_PATH, C1P_POSE_HEAD_PATH, C1P_FUSION_PATH)):
     raise FileNotFoundError("STACK_MODE=c1p인데 C1·P 가중치나 fusion_c1p.json이 없습니다. 파일을 두거나 STACK_MODE=a_c1로 실행하세요.")
