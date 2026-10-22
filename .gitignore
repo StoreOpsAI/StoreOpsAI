@@ -21,3 +21,6 @@ storeops_ai/output/*
 .env
 .env.*
 !.env.example
+
+# 모델 가중치는 git에 넣지 않는다(따로 전달)
+storeops_ai/training/runs/

@@ -12,7 +12,7 @@ import logging
 from datetime import datetime, timezone
 
 from config.config import (
-    YOLO_MODEL_PATH, TRACKER_CONFIG, CONF_THRESHOLD, PERSON_CLASS_ID,
+    YOLO_MODEL_PATH, TRACKER_CONFIG, CONF_THRESHOLD, PERSON_CLASS_ID, POSE_IMGSZ,
     CLIP_MIN_SEC, CLIP_MAX_SEC, EVENT_VIDEO_SEC, EVENT_VIDEO_PRE_SEC, EVENT_VIDEO_POST_SEC, CATEGORY_THRESHOLDS,
     EXPANDED_CROP_CATEGORIES, CROP_LARGEST_PERSON, EXPAND_X, EXPAND_Y, EVENT_DIR, CLIP_DIR, IMAGE_DIR, VLM_ON_EVENT,
     I3D_INPUT_MODE, I3D_WINDOW_SEC, I3D_INFER_INTERVAL_SEC, I3D_BUFFER_FPS, EVENT_COOLDOWN_SEC,
@@ -46,7 +46,7 @@ class Path1BehaviorPipeline:
     def __init__(self, camera_id="CAM001", i3d_weight_path=None, debug=False, vlm_transport=None):
         self.camera_id = camera_id
         self.debug = debug
-        self.detector = YOLODetector(YOLO_MODEL_PATH, TRACKER_CONFIG, CONF_THRESHOLD, PERSON_CLASS_ID)
+        self.detector = YOLODetector(YOLO_MODEL_PATH, TRACKER_CONFIG, CONF_THRESHOLD, PERSON_CLASS_ID, POSE_IMGSZ)
         self.i3d = I3DClassifier(i3d_weight_path)
         self.vlm = VLMAnalyzer(vlm_transport)
         self.events = EventManager(EVENT_DIR)

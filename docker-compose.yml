@@ -25,6 +25,8 @@ services:
       context: ./backend
     container_name: storeops-backend
     restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"   # Linux Docker에서도 호스트의 실시간 화면 서버에 닿게
     environment:
       DATABASE_URL: postgresql://storeops:storeops_dev_password@postgres:5432/storeops
       FRONTEND_ORIGIN: http://localhost:5173
@@ -35,6 +37,8 @@ services:
       STOREOPS_DEMAND_TOKENS_JSON: ${STOREOPS_DEMAND_TOKENS_JSON:?매장별 수요 서비스 토큰 매핑을 설정하세요}
       STOREOPS_AI_INGEST_TOKENS_JSON: ${STOREOPS_AI_INGEST_TOKENS_JSON:?매장별 탐지 토큰 매핑을 설정하세요}
       STOREOPS_AI_URL: http://storeops-ai:8000
+      # 실시간 화면: 탐지는 웹캠을 직접 여는 호스트 프로그램(pipelines/path1_webcam.py)이라 호스트 주소로 부른다
+      STOREOPS_AI_LIVE_URL: ${STOREOPS_AI_LIVE_URL:-http://host.docker.internal:8101}
       # 점주가 지난 사건을 물을 때 질문 Agent 요청으로 대표 이미지를 해석하는 VLM 서버(사건 시점에는 호출하지 않음)
       QWEN_VLM_BASE_URL: http://qwen-vllm:8000/v1
       QWEN_VLM_MODEL: ${QWEN_VLM_MODEL:-Qwen/Qwen3-VL-8B-Instruct-FP8}
@@ -70,8 +74,10 @@ services:
       ALERT_WEBHOOK_URL: http://backend:8000/api/internal/events
       VLM_RESULT_WEBHOOK_URL: http://backend:8000/api/internal/events/{event_id}/vlm
       QWEN_VLM_BASE_URL: http://qwen-vllm:8000/v1
-      # 사건 대표 이미지를 VLM에 보내고 설명을 백엔드에 저장합니다.
-      VLM_ON_EVENT: "1"
+      # 경보 후보가 났을 때만 클립 프레임을 VLM에 보내 "그 행동이 맞다"고 할 때만 백엔드로 최종 경보를 보냅니다(utils/vlm_gate.py).
+      # 10초 묶음마다 VLM을 부르지 않습니다. 사건 뒤 설명(VLM_ON_EVENT)은 끕니다.
+      VLM_ON_EVENT: "0"
+      VLM_GATE_ENABLED: "1"
       EVENT_INGEST_TOKEN: ${STOREOPS_AI_INGEST_TOKEN:?탐지 서비스 토큰을 설정하세요}
       STOREOPS_BACKEND_URL: http://backend:8000
     ports:
