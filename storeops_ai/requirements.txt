@@ -2,6 +2,7 @@ fastapi
 uvicorn[standard]
 ultralytics
 opencv-python
+imageio-ffmpeg
 numpy
 pydantic
 torch>=2.0
