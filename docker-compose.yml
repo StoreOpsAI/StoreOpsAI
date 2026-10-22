@@ -26,7 +26,7 @@ services:
     container_name: storeops-backend
     restart: unless-stopped
     extra_hosts:
-      - "host.docker.internal:host-gateway"   # Linux Docker에서도 호스트의 실시간 화면 서버에 닿게
+      - "host.docker.internal:host-gateway" # Linux Docker에서도 호스트의 실시간 화면 서버에 닿게
     environment:
       DATABASE_URL: postgresql://storeops:storeops_dev_password@postgres:5432/storeops
       FRONTEND_ORIGIN: http://localhost:5173
@@ -36,7 +36,6 @@ services:
       STOREOPS_QNA_TOKEN: ${STOREOPS_QNA_TOKEN:?질문 서비스 공유 토큰을 설정하세요}
       STOREOPS_DEMAND_TOKENS_JSON: ${STOREOPS_DEMAND_TOKENS_JSON:?매장별 수요 서비스 토큰 매핑을 설정하세요}
       STOREOPS_AI_INGEST_TOKENS_JSON: ${STOREOPS_AI_INGEST_TOKENS_JSON:?매장별 탐지 토큰 매핑을 설정하세요}
-      STOREOPS_AI_URL: http://storeops-ai:8000
       # 실시간 화면: 탐지는 웹캠을 직접 여는 호스트 프로그램(pipelines/path1_webcam.py)이라 호스트 주소로 부른다
       STOREOPS_AI_LIVE_URL: ${STOREOPS_AI_LIVE_URL:-http://host.docker.internal:8101}
       # 점주가 지난 사건을 물을 때 질문 Agent 요청으로 대표 이미지를 해석하는 VLM 서버(사건 시점에는 호출하지 않음)

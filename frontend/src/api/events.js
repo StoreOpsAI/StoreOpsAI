@@ -1,8 +1,9 @@
 import { getSessionId, request } from "./client";
 
-// 사건 목록은 현재 선택된 매장의 기본 조건으로 조회합니다.
-export function getEvents() {
-  return request("/api/events");
+// limit을 주면 관제 화면에서 필요한 최신 사건만 서버에서 받아옵니다.
+export function getEvents({ limit } = {}) {
+  const query = limit ? `?limit=${encodeURIComponent(limit)}` : "";
+  return request(`/api/events${query}`);
 }
 
 // 목록에서 선택한 사건의 최신 상세 정보를 조회합니다.

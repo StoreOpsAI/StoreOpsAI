@@ -87,7 +87,11 @@ class VLMAnalyzer:
                 "request": request_info,
             }
 
-        result = self._normalize_result(self.transport(image_paths, event_context))
+        selected_images = [
+            request_info["images"][position]
+            for position in ("first", "middle", "last")
+        ]
+        result = self._normalize_result(self.transport(selected_images, event_context))
         if not self.validate(result):
             raise ValueError(
                 "VLM 결과는 비어 있지 않은 observation/uncertain_points 및 "

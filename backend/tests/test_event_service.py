@@ -75,6 +75,43 @@ class EventServiceTest(unittest.TestCase):
 
         self.assertEqual(event.status, 'not_applicable')
 
+    def test_event_list_limit_keeps_newest_events(self) -> None:
+        """미리보기 개수 제한은 최신 사건부터 적용합니다."""
+
+        repository = EventRepository()
+        repository.seed([
+            Event(
+                event_id=f'E{index:03d}',
+                store_id='S01',
+                camera_id='CAM-01',
+                source='behavior_model',
+                event_type='fall',
+                occurred_at=f'2026-03-14T21:{index:02d}:00+09:00',
+                vlm=EventVlm(status='pending'),
+                status='unconfirmed',
+            )
+            for index in (1, 2, 3)
+        ])
+
+        events = repository.list_events(store_id='S01', limit=2)
+
+        self.assertEqual([event.event_id for event in events], ['E003', 'E002'])
+
+    def test_postgres_event_list_passes_limit_to_query(self) -> None:
+        """PostgreSQL 조회도 LIMIT 파라미터로 응답 행 수를 제한합니다."""
+
+        repository = PostgresEventRepository()
+        with patch('app.repositories.event_repository.connect') as connection:
+            cursor = connection.return_value.__enter__.return_value.cursor.return_value.__enter__.return_value
+            cursor.fetchall.return_value = []
+
+            events = repository.list_events(store_id='S01', limit=5)
+
+        query, parameters = cursor.execute.call_args.args
+        self.assertIn('LIMIT %s', query)
+        self.assertEqual(parameters[-1], 5)
+        self.assertEqual(events, [])
+
     def test_ingests_detector_event_from_token_store_mapping(self) -> None:
         """탐지기 사건의 매장과 ID는 서버 설정과 저장소가 결정합니다."""
 

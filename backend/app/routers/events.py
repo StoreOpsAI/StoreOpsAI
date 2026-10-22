@@ -27,9 +27,14 @@ def create_events_router(event_service: EventService, current_user) -> APIRouter
     def list_events(
         store_id: str | None = Query(default=None),
         status_filter: EventStatus | None = Query(default=None, alias='status'),
+        limit: int | None = Query(default=None, ge=1, le=200),
         user: AuthUser = Depends(current_user),
     ) -> EventListResponse:
-        events = event_service.list_events(store_id=user.store_id, status=status_filter)
+        events = event_service.list_events(
+            store_id=user.store_id,
+            status=status_filter,
+            limit=limit,
+        )
         return EventListResponse(events=events, count=len(events))
 
     @router.get('/{event_id}', response_model=Event)

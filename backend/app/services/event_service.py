@@ -43,10 +43,11 @@ class EventService:
         self,
         store_id: str | None = None,
         status: EventStatus | None = None,
+        limit: int | None = None,
     ) -> list[Event]:
         """저장소에 필터 조건을 전달해 사건 목록을 조회합니다."""
 
-        return self.repository.list_events(store_id=store_id, status=status)
+        return self.repository.list_events(store_id=store_id, status=status, limit=limit)
 
     def ingest(self, event: Event) -> Event:
         """저장소에서 탐지 UUID의 중복을 확인한 뒤 신규 사건 번호를 발급·저장합니다."""
