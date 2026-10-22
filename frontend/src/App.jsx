@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { getCurrentUser, logIn, logOut, signUp } from "./api/auth";
-import { analyzeCameraBatch } from "./api/camera";
+import { fetchLiveFrame } from "./api/camera";
 import {
   getEvent,
   getEventClip,
@@ -1112,129 +1112,61 @@ function QuestionsPanel() {
 }
 
 function WebcamMonitor({ storeId }) {
-  const videoRef = useRef(null);
-  const canvasRef = useRef(null);
-  const streamRef = useRef(null);
-  const timerRef = useRef(null);
-  const framesRef = useRef([]);
-  const newFramesSinceBatchRef = useRef(0);
-  const isSendingRef = useRef(false);
-  const isCapturingRef = useRef(false);
+  const runningRef = useRef(false);
+  const urlRef = useRef("");
+  const [frameUrl, setFrameUrl] = useState("");
   const [cameraState, setCameraState] = useState("idle");
-  const [analysisState, setAnalysisState] = useState("대기 중");
   const [error, setError] = useState("");
 
+  const showFrame = (blob) => {
+    const url = URL.createObjectURL(blob);
+    if (urlRef.current) URL.revokeObjectURL(urlRef.current);
+    urlRef.current = url;
+    setFrameUrl(url);
+  };
+
   const stopCamera = () => {
-    window.clearInterval(timerRef.current);
-    timerRef.current = null;
-    streamRef.current?.getTracks().forEach((track) => track.stop());
-    streamRef.current = null;
-    if (videoRef.current) videoRef.current.srcObject = null;
-    framesRef.current = [];
-    newFramesSinceBatchRef.current = 0;
+    runningRef.current = false;
     setCameraState("idle");
-    setAnalysisState("대기 중");
   };
 
   useEffect(
     () => () => {
-      window.clearInterval(timerRef.current);
-      streamRef.current?.getTracks().forEach((track) => track.stop());
+      runningRef.current = false;
+      if (urlRef.current) URL.revokeObjectURL(urlRef.current);
     },
     [],
   );
 
+  // 카메라는 탐지 PC가 직접 열고 계속 분석합니다. 여기서는 그 화면을 받아 보여 주기만 합니다.
+  // 직전에 받은 화면 번호를 보내 새 화면이 생길 때만 받아 옵니다(화면 속도 = 탐지 처리 속도).
   const startCamera = async () => {
+    if (runningRef.current) return;
     setError("");
-    if (!navigator.mediaDevices?.getUserMedia) {
-      setError("이 브라우저에서 웹캠을 사용할 수 없습니다.");
-      return;
-    }
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: false,
-        video: {
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
-        },
-      });
-      streamRef.current = stream;
-      videoRef.current.srcObject = stream;
-      await videoRef.current.play();
-      framesRef.current = [];
-      newFramesSinceBatchRef.current = 0;
-      setCameraState("live");
-      setAnalysisState("프레임 수집 중");
-
-      // I3D 입력 속도인 초당 3장으로 수집해 10초마다 한 묶음으로 분석합니다.
-      timerRef.current = window.setInterval(() => {
-        const video = videoRef.current;
-        const canvas = canvasRef.current;
-        if (!video || !canvas || video.readyState < 2 || isCapturingRef.current)
-          return;
-        isCapturingRef.current = true;
-        const scale = Math.min(1, 640 / video.videoWidth);
-        canvas.width = Math.round(video.videoWidth * scale);
-        canvas.height = Math.round(video.videoHeight * scale);
-        const context = canvas.getContext("2d");
-        context.drawImage(video, 0, 0, canvas.width, canvas.height);
-        framesRef.current.push({
-          capturedAt: Date.now() / 1000,
-          image: canvas.toDataURL("image/jpeg", 0.68).split(",")[1],
-        });
-        isCapturingRef.current = false;
-        newFramesSinceBatchRef.current += 1;
-
-        if (newFramesSinceBatchRef.current < 30) return;
-        const batch = framesRef.current;
-        const capturedAt = batch[0].capturedAt;
-        framesRef.current = batch.slice(-12);
-        newFramesSinceBatchRef.current = 0;
-        if (isSendingRef.current) {
-          setAnalysisState("직전 구간 분석 중, 이번 구간은 건너뜀");
-          return;
+    runningRef.current = true;
+    setCameraState("live");
+    let seq = 0;
+    while (runningRef.current) {
+      try {
+        const frame = await fetchLiveFrame(seq);
+        if (frame && runningRef.current) {
+          seq = frame.seq;
+          showFrame(frame.blob);
         }
-
-        isSendingRef.current = true;
-        setAnalysisState("10초 구간 분석 중");
-        analyzeCameraBatch({
-          camera_id: "CAM-01",
-          captured_at: capturedAt,
-          frames: batch.map((frame) => frame.image),
-        })
-          .then((result) => {
-            setAnalysisState(
-              result.issued_event_count
-                ? `이상 사건 ${result.issued_event_count}건 등록`
-                : "이상행동 없음",
-            );
-          })
-          .catch((requestError) => {
-            setAnalysisState("분석 요청 실패");
-            setError(requestError.message);
-          })
-          .finally(() => {
-            isSendingRef.current = false;
-          });
-      }, 333);
-    } catch (cameraError) {
-      streamRef.current?.getTracks().forEach((track) => track.stop());
-      streamRef.current = null;
-      setCameraState("idle");
-      setError(
-        cameraError.name === "NotAllowedError"
-          ? "웹캠 사용 권한이 필요합니다. 브라우저 권한을 허용해 주세요."
-          : cameraError.message || "웹캠을 시작하지 못했습니다.",
-      );
+      } catch (requestError) {
+        runningRef.current = false;
+        setCameraState("idle");
+        setError(requestError.message);
+      }
     }
   };
 
   return (
-    <section className="camera-monitor" aria-label="실시간 웹캠 관제">
+    <section className="camera-monitor" aria-label="실시간 매장 카메라 관제">
       <div className="camera-monitor-heading">
         <div>
           <span className="panel-label">LIVE CAMERA · {storeId} · CAM-01</span>
-          <h2>실시간 웹캠</h2>
+          <h2>실시간 매장 카메라</h2>
         </div>
         <span className={`camera-state camera-${cameraState}`}>
           <span /> {cameraState === "live" ? "실시간" : "중지됨"}
@@ -1242,14 +1174,16 @@ function WebcamMonitor({ storeId }) {
       </div>
       <div className="camera-monitor-body">
         <div className="camera-video-frame">
-          <video ref={videoRef} autoPlay muted playsInline />
-          {cameraState !== "live" && <span>웹캠이 꺼져 있습니다</span>}
-          <canvas ref={canvasRef} className="camera-capture-canvas" />
+          {cameraState === "live" && frameUrl ? (
+            <img src={frameUrl} alt="탐지 중인 매장 카메라 화면" />
+          ) : (
+            <span>{cameraState === "live" ? "화면을 받는 중입니다" : "화면이 꺼져 있습니다"}</span>
+          )}
         </div>
         <div className="camera-controls">
           <p className="panel-label">행동 분석</p>
-          <strong>{analysisState}</strong>
-          <p>10초마다 수집한 프레임을 I3D로 분석합니다.</p>
+          <strong>{cameraState === "live" ? "탐지 PC에서 계속 분석 중" : "대기 중"}</strong>
+          <p>이상 후보가 나오면 VLM이 확인한 뒤 맞는 경우에만 사건 목록에 경보로 올라옵니다.</p>
           {error && (
             <p className="camera-error" role="alert">
               {error}
@@ -1261,7 +1195,7 @@ function WebcamMonitor({ storeId }) {
               className="secondary-button camera-toggle"
               onClick={stopCamera}
             >
-              웹캠 중지
+              화면 끄기
             </button>
           ) : (
             <button
@@ -1269,7 +1203,7 @@ function WebcamMonitor({ storeId }) {
               className="primary-button camera-toggle"
               onClick={startCamera}
             >
-              웹캠 시작
+              화면 보기
             </button>
           )}
         </div>

@@ -79,6 +79,36 @@ FastAPI 시작 시 Path 2 감시 스케줄러와 `input/` 폴더 감시기가 �
 - FR-EVT-11 중복 방지 + 재연결 시 상태 종료
 - FR-EVT-12 끊김 시간/기준시간 기록, 영상/점수 비움
 
+## 6클래스 가중치 설치 (v2.0, 탐지 PC 연속 분석)
+
+가중치는 git에 넣지 않습니다(AI Hub 데이터로 학습한 연구용, 공개 저장소). 팀에 따로 전달하는
+`서비스_6클래스_가중치_v2.0.zip`을 풀어 `ours_stack` 폴더를 `storeops_ai/training/runs/ours_stack/`에 둡니다.
+압축 안 `SHA256SUMS.txt`로 파일이 맞는지 확인합니다.
+
+| 파일 | 내용 |
+| ---- | ---- |
+| `s3d_c1_6.pt` | 사람 크롭 S3D(C1), 6클래스 |
+| `pose_head6.pt` / `fusion_c1p.json` | C1+P (기본값) |
+| `pose_head6_rel.pt` / `fusion_c1pr.json` | C1+(P+R) 관절+사람-물건 관계 (권장) |
+| `object_det.pt` | 물건 탐지기 (P+R 헤드일 때만) |
+
+권장 실행(탐지 PC, 웹캠을 직접 엽니다):
+
+```bash
+cd storeops_ai
+export C1P_POSE_HEAD_PATH=training/runs/ours_stack/pose_head6_rel.pt
+export C1P_FUSION_PATH=training/runs/ours_stack/fusion_c1pr.json
+export EVENT_INGEST_TOKEN=<매장 탐지 토큰>          # 실시간 화면·사건 전송 인증
+export ALERT_WEBHOOK_URL=http://<백엔드>:8000/api/internal/events
+export VLM_RESULT_WEBHOOK_URL=http://<백엔드>:8000/api/internal/events/{event_id}/vlm
+export QWEN_VLM_BASE_URL=http://<VLM 서버>:8001/v1  # 경보 후보일 때만 확인(VLM_GATE_ENABLED=1)
+python -u pipelines/path1_webcam.py --camera 0
+```
+
+- 경보 후보가 나면 클립 프레임을 VLM에 보내 맞다고 할 때만 백엔드로 최종 경보를 보냅니다(`utils/vlm_gate.py`).
+- 대시보드 LIVE CAMERA는 백엔드 `/api/camera/live-frame`을 거쳐 이 프로그램의 원본 화면(`LIVE_STREAM_PORT`, 기본 8101)을 보여 줍니다.
+- 첫 실행은 빈 화면 20초 + 걷기 40초 자동 보정을 합니다.
+
 ## 행동분류 모델 연결 (FR-EVT-05)
 
 기본 체크포인트는 torchvision S3D 두 개입니다. 화면 전체 모델

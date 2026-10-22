@@ -331,16 +331,14 @@ button:disabled {
   color: #d5d9d0;
   font-size: 13px;
 }
-.camera-video-frame video {
+.camera-video-frame video,
+.camera-video-frame img {
   width: 100%;
   height: 100%;
   object-fit: contain;
 }
 .camera-video-frame > span {
   position: absolute;
-}
-.camera-capture-canvas {
-  display: none;
 }
 .camera-controls {
   display: grid;

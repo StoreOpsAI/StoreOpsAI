@@ -53,16 +53,17 @@ class VLMAnalyzer:
         image_paths: List[str],
         event_context: Dict[str, Any],
     ) -> Dict[str, Any]:
-        if len(image_paths) != 3:
+        if len(image_paths) < 3:
             raise ValueError(
-                "VLM 입력 이미지는 처음/가운데/끝 3장이 필요합니다. "
+                "VLM 입력 이미지는 처음/가운데/끝을 포함해 3장 이상 필요합니다. "
                 f"현재 {len(image_paths)}장"
             )
         return {
             "images": {
                 "first": image_paths[0],
-                "middle": image_paths[1],
-                "last": image_paths[2],
+                "middle": image_paths[len(image_paths) // 2],
+                "last": image_paths[-1],
+                "count": len(image_paths),
             },
             "event_context": {
                 key: event_context[key]
@@ -97,6 +98,16 @@ class VLMAnalyzer:
         result.setdefault("status", "SUCCESS")
         result.setdefault("model_name", QWEN_VLM_MODEL)
         return result
+
+    def verify(self, image_paths: List[str], event_context: Dict[str, Any]) -> Dict[str, Any]:
+        """사건 후보가 그 행동이 맞는지 확인한다. 결과에 confirmed(bool)가 반드시 있다."""
+        result = self.analyze(image_paths, {**event_context, "mode": "verify"})
+        if result.get("status") != "VLM_NOT_CONFIGURED" and not isinstance(result.get("confirmed"), bool):
+            raise ValueError("VLM 확인 결과에 confirmed(true/false)가 없습니다.\n" + json.dumps(result, ensure_ascii=False))
+        return result
+
+    def verify_async(self, image_paths: List[str], event_context: Dict[str, Any]):
+        return self.executor.submit(self.verify, image_paths, event_context)
 
     @staticmethod
     def _normalize_result(result: Any) -> Any:
@@ -152,6 +163,13 @@ class VLMAnalyzer:
             "객체만 반환하세요. JSON은 observation(문자열), uncertain_points(문자열), "
             "owner_actions(점주 확인사항 문자열 정확히 3개 배열)를 가져야 합니다."
         )
+        if event_context.get("mode") == "verify":
+            instructions += (
+                " 사건 정보의 category는 자동 탐지 모델이 의심한 행동이고 definition은 그 행동의 판단 기준입니다. "
+                "이미지는 clip_seconds초 동안의 연속 프레임을 시간 순서대로 같은 간격으로 나열한 것입니다. 이 흐름에서 그 기준에 맞는 행동이 실제로 보이면 confirmed를 true, "
+                "보이지 않거나 다른 행동이면 false로 하세요. JSON에 confirmed(true/false)를 반드시 넣으세요."
+            )
+        event_context = {k: v for k, v in event_context.items() if k != "mode"}
         image_parts = [
             {"type": "image_url", "image_url": {"url": self._image_data_url(path)}}
             for path in image_paths

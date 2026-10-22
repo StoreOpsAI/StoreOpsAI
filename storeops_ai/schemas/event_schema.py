@@ -1,14 +1,20 @@
-from datetime import datetime, timezone
+from datetime import datetime
 from uuid import UUID, uuid4
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
+
+from config.config import MEDIA_DIR
 
 
 def _portable_output_uri(value: str | None) -> str | None:
     """공유 output 경로는 실행 OS가 달라도 컨테이너가 읽을 수 있게 정규화합니다."""
     if not value:
         return value
+    try:   # 저장 폴더(MEDIA_DIR, 공유 폴더일 수 있음) 아래 파일이면 "output/<상대경로>"로 바꾼다. 백엔드는 자기 쪽 폴더 기준으로 읽는다.
+        return "output/" + Path(value).resolve().relative_to(MEDIA_DIR.resolve()).as_posix()
+    except (ValueError, OSError):
+        pass
     normalized = value.replace("\\", "/")
     marker = "/output/"
     if marker in normalized:
@@ -24,9 +30,7 @@ class EventCandidate(BaseModel):
     행동 사건: category/confidence/scores/영상/대표 이미지 사용
     카메라 끊김 사건: 영상과 점수는 비워 두고 disconnect 정보만 사용
     """
-    # shortcut: MVP 번호는 E001~E999만 지원하며 1,000건 전에 자릿수 정책을 확장한다.
     event_id: str = Field(..., pattern=r"^E\d{3}$")
-    # 화면 번호와 별개로 생성·저장한 UUID를 재전송에도 그대로 사용한다.
     event_uid: UUID = Field(default_factory=uuid4)
     backend_event_id: Optional[str] = None
     camera_id: str
@@ -57,8 +61,7 @@ class EventCandidate(BaseModel):
     alert_status: str = "PENDING"
     alert_error: Optional[str] = None
     vlm: Optional[Dict[str, Any]] = None
-    # 호스트와 컨테이너의 현지 시간 설정에 관계없이 시간대를 함께 전송한다.
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: datetime = Field(default_factory=lambda: datetime.now().astimezone())   # 시간대 포함. 백엔드는 시간대 없는 값을 UTC로 간주한다
 
     def to_dict(self):
         data = self.model_dump(mode="json")

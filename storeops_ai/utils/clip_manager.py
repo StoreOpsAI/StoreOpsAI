@@ -1,6 +1,8 @@
 from pathlib import Path
+import shutil
 import subprocess
 import cv2
+import numpy as np
 
 
 def save_frames(frames, path, fps):
@@ -21,19 +23,24 @@ def save_frames(frames, path, fps):
             writer.write(frame)
     finally:
         writer.release()
+    encoded_path = path.with_suffix(".h264.mp4")
     try:
-        # OpenCV 기본 mp4v는 브라우저에서 재생되지 않을 수 있어 H.264로 표준화한다.
+        ffmpeg = shutil.which("ffmpeg")
+        if not ffmpeg:
+            try:
+                import imageio_ffmpeg
+                ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
+            except (ImportError, RuntimeError) as exc:
+                raise RuntimeError("H.264 MP4 saving requires ffmpeg or imageio-ffmpeg") from exc
         subprocess.run(
-            [
-                "ffmpeg", "-y", "-loglevel", "error", "-i", str(temporary_path),
-                "-c:v", "libx264", "-pix_fmt", "yuv420p", "-movflags", "+faststart", str(path),
-            ],
+            [ffmpeg, "-y", "-loglevel", "error", "-i", str(temporary_path),
+             "-c:v", "libx264", "-pix_fmt", "yuv420p", "-movflags", "+faststart", str(encoded_path)],
             check=True,
         )
+        encoded_path.replace(path)
+    finally:
         temporary_path.unlink(missing_ok=True)
-    except (FileNotFoundError, subprocess.CalledProcessError):
-        # 로컬 개발 환경에 FFmpeg가 없으면 OpenCV 결과를 그대로 보존한다.
-        temporary_path.replace(path)
+        encoded_path.unlink(missing_ok=True)
     return path
 
 
@@ -42,6 +49,21 @@ def representative_indices(n):
     if n == 1: return [0, 0, 0]
     if n == 2: return [0, 1, 1]
     return [0, n // 2, n - 1]
+
+
+def save_all_images(frames, out_dir, stem, limit=0):
+    """VLM 확인용: 클립 프레임을 시간 순서대로 전부(limit>0이면 고른 간격으로 limit장) JPEG로 저장한다."""
+    if not frames:
+        raise ValueError("VLM 확인용 프레임이 없습니다.")
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    idxs = range(len(frames)) if limit <= 0 or len(frames) <= limit else np.linspace(0, len(frames) - 1, limit).round().astype(int)
+    paths = []
+    for i, idx in enumerate(idxs, 1):
+        p = out_dir / f"{stem}_vlm_{i:02d}.jpg"
+        cv2.imwrite(str(p), frames[int(idx)])
+        paths.append(str(p))
+    return paths
 
 
 def save_representative_images(frames, out_dir, stem):

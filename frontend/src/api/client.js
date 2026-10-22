@@ -1,5 +1,5 @@
 const SESSION_STORAGE_KEY = "storeops_session_id";
-const SESSION_HEADER_NAME = "X-Session-ID";
+export const SESSION_HEADER_NAME = "X-Session-ID";
 
 // 세션 ID는 로그인 탭 안에서만 유지되도록 sessionStorage에 보관합니다.
 export function getSessionId() {

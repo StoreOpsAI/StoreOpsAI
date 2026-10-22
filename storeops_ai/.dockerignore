@@ -6,3 +6,16 @@ output/
 .env
 .env.*
 !.env.example
+# 추론에 필요 없는 것: 테스트, 점검 도구, 학습 스크립트, 문서, 웹캠 도구
+tests/
+tools/
+training/scripts/
+*.md
+webcam_i3d.py
+# 가중치는 서비스에 쓰는 것만 이미지에 넣는다(A, C1, 결합 파일)
+training/runs/*
+!training/runs/ours_a_final/
+!training/runs/ours_c1_final/
+!training/runs/ours_stack/
+training/runs/ours_stack/stack.json
+training/runs/ours_stack/stack_logistic_old.json

@@ -18,8 +18,7 @@ ALERT_INTERNAL_FIELDS = ("scores", "threshold", "confidence", "risk_level", "sco
 def alert_payload(event) -> dict:
     """백엔드 사건 등록 API로 보낼 본문. 내부 점수 필드를 뺀다."""
     payload = {key: value for key, value in event.to_dict().items() if key not in ALERT_INTERNAL_FIELDS}
-    if os.getenv('STOREOPS_MEDIA_UPLOAD_ENABLED') == '1':
-        # PC가 분리되면 탐지 PC의 파일 경로를 백엔드 사건에 등록하지 않는다.
+    if os.getenv("STOREOPS_MEDIA_UPLOAD_ENABLED") == "1":
         payload.update(clip_path=None, event_video_path=None, representative_images=[])
     return payload
 
@@ -31,6 +30,7 @@ def send_first_alert(event):
         event.alert_error = "ALERT_WEBHOOK_URL is not configured"
         logger.warning("[FIRST ALERT NOT CONFIGURED] event=%s", event.event_id)
         return False
+    # backend가 같은 output 볼륨을 공유하므로 경로는 상대 경로 그대로 보낸다(백엔드 /clip 라우터가 해석).
     body = json.dumps(alert_payload(event), ensure_ascii=False).encode("utf-8")
     ingest_token = os.getenv("EVENT_INGEST_TOKEN", "")
     headers = {"Content-Type": "application/json; charset=utf-8"}
@@ -62,49 +62,49 @@ def send_first_alert(event):
 
 
 def send_event_media(event) -> bool:
-    """완성된 사건 영상과 대표 이미지를 백엔드 사건 ID에 맞춰 전송합니다."""
-
-    if os.getenv('STOREOPS_MEDIA_UPLOAD_ENABLED') != '1':
+    if os.getenv("STOREOPS_MEDIA_UPLOAD_ENABLED") != "1":
         return True
     if not event.backend_event_id and not send_first_alert(event):
         return False
 
-    files = [('clip', event.event_video_path, 'video/mp4')]
+    files = [("clip", event.event_video_path, "video/mp4")]
     files.extend(
-        (media_type, path, 'image/jpeg')
-        for media_type, path in zip(('frame_start', 'frame_middle', 'frame_end'), event.representative_images)
+        (media_type, path, "image/jpeg")
+        for media_type, path in zip(
+            ("frame_start", "frame_middle", "frame_end"), event.representative_images
+        )
     )
-    token = os.getenv('EVENT_INGEST_TOKEN', '')
+    token = os.getenv("EVENT_INGEST_TOKEN", "")
     for media_type, name, content_type in files:
         path = Path(name) if name else None
         if path is None or not path.is_file():
-            logger.error('[MEDIA FILE MISSING] event=%s media=%s', event.event_id, media_type)
+            logger.error("[MEDIA FILE MISSING] event=%s media=%s", event.event_id, media_type)
             return False
         url = f'{ALERT_WEBHOOK_URL.rstrip("/")}/{event.backend_event_id}/media/{media_type}'
         for attempt in range(3):
             try:
-                with path.open('rb') as file:
+                with path.open("rb") as file:
                     request = Request(
-                        url, data=file, method='PUT',
+                        url, data=file, method="PUT",
                         headers={
-                            'Authorization': f'Bearer {token}',
-                            'Content-Type': content_type,
-                            'Content-Length': str(path.stat().st_size),
+                            "Authorization": f"Bearer {token}",
+                            "Content-Type": content_type,
+                            "Content-Length": str(path.stat().st_size),
                         },
                     )
                     with urlopen(request, timeout=max(60, ALERT_WEBHOOK_TIMEOUT_SEC)) as response:
                         response.read()
                 break
             except HTTPError as error:
-                logger.error('[MEDIA UPLOAD FAILED] event=%s media=%s status=%s', event.event_id, media_type, error.code)
+                logger.error("[MEDIA UPLOAD FAILED] event=%s media=%s status=%s", event.event_id, media_type, error.code)
                 if error.code < 500:
                     return False
             except (URLError, OSError) as error:
-                logger.warning('[MEDIA UPLOAD RETRY] event=%s media=%s error=%s', event.event_id, media_type, error)
+                logger.warning("[MEDIA UPLOAD RETRY] event=%s media=%s error=%s", event.event_id, media_type, error)
             if attempt == 2:
                 return False
             time.sleep(attempt + 1)
-    logger.info('[MEDIA UPLOAD COMPLETE] event=%s', event.event_id)
+    logger.info("[MEDIA UPLOAD COMPLETE] event=%s", event.event_id)
     return True
 
 
