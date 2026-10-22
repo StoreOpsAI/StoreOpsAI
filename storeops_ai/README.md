@@ -103,6 +103,7 @@ cd storeops_ai
 export C1P_POSE_HEAD_PATH=training/runs/ours_stack/pose_head6_rel.pt
 export C1P_FUSION_PATH=training/runs/ours_stack/fusion_c1pr.json
 export EVENT_INGEST_TOKEN=<매장 탐지 토큰>          # 실시간 화면·사건 전송 인증
+export STOREOPS_MEDIA_UPLOAD_ENABLED=1              # 별도 PC 배치 시 사건 미디어 업로드
 export ALERT_WEBHOOK_URL=http://<백엔드>:8000/api/internal/events
 export VLM_RESULT_WEBHOOK_URL=http://<백엔드>:8000/api/internal/events/{event_id}/vlm
 export QWEN_VLM_BASE_URL=http://<VLM 서버>:8001/v1  # 경보 후보일 때만 확인(VLM_GATE_ENABLED=1)

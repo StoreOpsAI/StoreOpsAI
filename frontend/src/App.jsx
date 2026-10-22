@@ -1315,6 +1315,21 @@ function App() {
   const [loadState, setLoadState] = useState("loading");
   const [error, setError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const sessionVersion = useRef(0);
+
+  const resetEventState = () => {
+    setActiveTab("camera");
+    setEvents([]);
+    setRecentEvents([]);
+    setRecentLoadState("loading");
+    setRecentError("");
+    setRecentUpdatedAt(null);
+    setIsRecentRefreshing(false);
+    setSelectedEvent(null);
+    setLoadState("loading");
+    setError("");
+    setIsSubmitting(false);
+  };
 
   useEffect(() => {
     fetch("/api/health")
@@ -1335,23 +1350,29 @@ function App() {
   }, []);
 
   const loadEvents = async () => {
+    const requestVersion = sessionVersion.current;
     setLoadState("loading");
     setError("");
     try {
       const data = await getEvents();
+      if (requestVersion !== sessionVersion.current) return;
+      const selectedEventData = data.events[0]
+        ? await getEvent(data.events[0].event_id)
+        : null;
+      if (requestVersion !== sessionVersion.current) return;
       setEvents(data.events);
       setLoadState(data.events.length ? "success" : "empty");
       setError("");
-      setSelectedEvent(
-        data.events[0] ? await getEvent(data.events[0].event_id) : null,
-      );
+      setSelectedEvent(selectedEventData);
     } catch (requestError) {
+      if (requestVersion !== sessionVersion.current) return;
       setError(requestError.message);
       setLoadState("error");
     }
   };
 
   const loadRecentEvents = async ({ background = false } = {}) => {
+    const requestVersion = sessionVersion.current;
     if (!background) {
       setIsRecentRefreshing(true);
       setRecentError("");
@@ -1359,22 +1380,51 @@ function App() {
     }
     try {
       const data = await getEvents({ limit: 5 });
+      if (requestVersion !== sessionVersion.current) return;
       const latestEvents = data.events.slice(0, 5);
       setRecentEvents(latestEvents);
       setRecentLoadState(latestEvents.length ? "success" : "empty");
       setRecentUpdatedAt(new Date());
       setRecentError("");
     } catch (requestError) {
+      if (requestVersion !== sessionVersion.current) return;
       setRecentError(requestError.message);
       if (!recentEvents.length) setRecentLoadState("error");
     } finally {
-      if (!background) setIsRecentRefreshing(false);
+      if (!background && requestVersion === sessionVersion.current)
+        setIsRecentRefreshing(false);
     }
   };
 
   const refreshRecentEvents = useEffectEvent(() =>
     loadRecentEvents({ background: true }),
   );
+  const refreshSelectedEvent = useEffectEvent(async () => {
+    const eventId = selectedEvent?.event_id;
+    if (
+      authState !== "authenticated" ||
+      activeTab !== "events" ||
+      !eventId
+    )
+      return;
+    const requestVersion = sessionVersion.current;
+    try {
+      const updatedEvent = await getEvent(eventId);
+      if (
+        requestVersion !== sessionVersion.current ||
+        selectedEvent?.event_id !== eventId
+      )
+        return;
+      setSelectedEvent(updatedEvent);
+      setEvents((currentEvents) =>
+        currentEvents.map((event) =>
+          event.event_id === eventId ? updatedEvent : event,
+        ),
+      );
+    } catch {
+      // 다음 주기 조회에서 다시 시도합니다.
+    }
+  });
 
   useEffect(() => {
     if (authState === "authenticated") refreshRecentEvents();
@@ -1387,12 +1437,24 @@ function App() {
     return () => window.clearInterval(refreshTimer);
   }, [authState, activeTab]);
 
+  useEffect(() => {
+    if (authState !== "authenticated" || activeTab !== "events")
+      return undefined;
+    const refreshTimer = window.setInterval(
+      () => refreshSelectedEvent(),
+      15000,
+    );
+    return () => window.clearInterval(refreshTimer);
+  }, [authState, activeTab]);
+
   if (authState === "loading")
     return <div className="auth-loading">세션을 확인하는 중입니다...</div>;
   if (authState === "unauthenticated")
     return (
       <AuthScreen
         onAuthenticated={(authenticatedUser) => {
+          sessionVersion.current += 1;
+          resetEventState();
           setUser(authenticatedUser);
           setAuthState("authenticated");
         }}
@@ -1400,16 +1462,23 @@ function App() {
     );
 
   const handleLogout = async () => {
-    await logOut().catch(() => {});
+    sessionVersion.current += 1;
+    resetEventState();
     setUser(null);
+    setAuthState("loading");
+    await logOut().catch(() => {});
     setAuthState("unauthenticated");
   };
 
   const handleSelect = async (eventId) => {
+    const requestVersion = sessionVersion.current;
     // 목록의 요약 정보 대신 서버의 최신 상세 데이터를 화면에 반영합니다.
     try {
-      setSelectedEvent(await getEvent(eventId));
+      const updatedEvent = await getEvent(eventId);
+      if (requestVersion !== sessionVersion.current) return;
+      setSelectedEvent(updatedEvent);
     } catch (requestError) {
+      if (requestVersion !== sessionVersion.current) return;
       setError(requestError.message);
     }
   };
@@ -1427,12 +1496,14 @@ function App() {
 
   const handleStatusChange = async (nextStatus) => {
     // 중복 제출을 막고, 성공 응답을 목록과 상세 화면에 동시에 반영합니다.
+    const requestVersion = sessionVersion.current;
     setIsSubmitting(true);
     try {
       const updatedEvent = await updateEventStatus(
         selectedEvent.event_id,
         nextStatus,
       );
+      if (requestVersion !== sessionVersion.current) return;
       setSelectedEvent(updatedEvent);
       setEvents((currentEvents) =>
         currentEvents.map((event) =>
@@ -1445,9 +1516,10 @@ function App() {
         ),
       );
     } catch (requestError) {
+      if (requestVersion !== sessionVersion.current) return;
       setError(requestError.message);
     } finally {
-      setIsSubmitting(false);
+      if (requestVersion === sessionVersion.current) setIsSubmitting(false);
     }
   };
 
