@@ -283,7 +283,7 @@ class Path1BehaviorPipeline:
             frames[clip_start:frame_no + 1], frames[ev_start:frame_no + 1],
                 fps, clip_start, frame_no, clip_start / fps, t_now)
 
-            def analyze(self, video_path, score_provider: Optional[callable] = None):
+    def analyze(self, video_path, score_provider: Optional[callable] = None):
         if I3D_INPUT_MODE != "full":
             raise ValueError("행동분류 운영 모드는 화면 전체(full)만 지원합니다.")
         crop_mode = False
