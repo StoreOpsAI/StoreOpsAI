@@ -26,7 +26,7 @@ services:
     container_name: storeops-backend
     restart: unless-stopped
     extra_hosts:
-      - "host.docker.internal:host-gateway"   # Linux Docker에서도 호스트의 실시간 화면 서버에 닿게
+      - "host.docker.internal:host-gateway" # Linux Docker에서도 호스트의 실시간 화면 서버에 닿게
     environment:
       DATABASE_URL: postgresql://storeops:storeops_dev_password@postgres:5432/storeops
       FRONTEND_ORIGIN: http://localhost:5173

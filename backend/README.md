@@ -42,19 +42,19 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
 ## 환경 설정
 
-| 변수                             | 기본값                  | 설명                                                                                |
-| -------------------------------- | ----------------------- | ----------------------------------------------------------------------------------- |
-| `DATABASE_URL`                   | 미설정                  | PostgreSQL 연결 문자열. 설정하면 PostgreSQL 저장소를 사용합니다.                    |
-| `FRONTEND_ORIGIN`                | `http://localhost:5173` | CORS 요청을 허용할 프런트엔드 출처입니다.                                           |
-| `STOREOPS_OUTPUT_DIR`            | `/app/output`           | 사건 영상·대표 이미지 파일을 제공할 출력 폴더입니다.                                |
-| `STOREOPS_DEMAND_URL`            | `http://localhost:8765` | 수요 서비스 기본 주소입니다.                                                        |
-| `STOREOPS_DEMAND_TOKENS_JSON`    | `{}`                    | 매장 ID를 수요 서비스 토큰에 대응시키는 JSON 객체입니다.                            |
-| `STOREOPS_DEMAND_TOKEN`          | 미설정                  | 매장별 토큰 맵에 항목이 없을 때 사용하는 선택적 대체 토큰입니다.                    |
-| `STOREOPS_AI_INGEST_TOKENS_JSON` | 미설정                  | CCTV 탐지 토큰을 매장 ID에 대응시키는 JSON 객체입니다.                              |
-| `STOREOPS_AI_LIVE_URL`           | `http://localhost:8101` | 탐지 PC의 인증된 `/live/frame` 주소입니다. 분리 운영에서는 탐지 PC 주소를 지정합니다. |
-| `STOREOPS_AI_LIVE_TIMEOUT_SEC`   | `15`                    | 탐지 PC의 새 카메라 화면을 기다리는 최대 시간입니다.                                |
+| 변수                             | 기본값                  | 설명                                                                                          |
+| -------------------------------- | ----------------------- | --------------------------------------------------------------------------------------------- |
+| `DATABASE_URL`                   | 미설정                  | PostgreSQL 연결 문자열. 설정하면 PostgreSQL 저장소를 사용합니다.                              |
+| `FRONTEND_ORIGIN`                | `http://localhost:5173` | CORS 요청을 허용할 프런트엔드 출처입니다.                                                     |
+| `STOREOPS_OUTPUT_DIR`            | `/app/output`           | 사건 영상·대표 이미지 파일을 제공할 출력 폴더입니다.                                          |
+| `STOREOPS_DEMAND_URL`            | `http://localhost:8765` | 수요 서비스 기본 주소입니다.                                                                  |
+| `STOREOPS_DEMAND_TOKENS_JSON`    | `{}`                    | 매장 ID를 수요 서비스 토큰에 대응시키는 JSON 객체입니다.                                      |
+| `STOREOPS_DEMAND_TOKEN`          | 미설정                  | 매장별 토큰 맵에 항목이 없을 때 사용하는 선택적 대체 토큰입니다.                              |
+| `STOREOPS_AI_INGEST_TOKENS_JSON` | 미설정                  | CCTV 탐지 토큰을 매장 ID에 대응시키는 JSON 객체입니다.                                        |
+| `STOREOPS_AI_LIVE_URL`           | `http://localhost:8101` | 탐지 PC의 인증된 `/live/frame` 주소입니다. 분리 운영에서는 탐지 PC 주소를 지정합니다.         |
+| `STOREOPS_AI_LIVE_TIMEOUT_SEC`   | `15`                    | 탐지 PC의 새 카메라 화면을 기다리는 최대 시간입니다.                                          |
 | `STOREOPS_QNA_URL`               | `http://127.0.0.1:8002` | 질문 Agent 내부 API 주소입니다. Compose에서는 루트 `.env`의 원격 Agent LAN 주소를 사용합니다. |
-| `STOREOPS_QNA_TOKEN`             | 미설정                  | 질문 Agent와 공유하는 서버 간 인증 토큰입니다. 질문 기능에 필요합니다.              |
+| `STOREOPS_QNA_TOKEN`             | 미설정                  | 질문 Agent와 공유하는 서버 간 인증 토큰입니다. 질문 기능에 필요합니다.                        |
 
 [`backend/.env.example`](.env.example)은 DB·탐지 설정 예시입니다. 전체 Compose 필수 변수에는 수요 토큰 맵과 `STOREOPS_QNA_TOKEN`도 포함되므로 [루트 README](../README.md)의 `.env` 항목을 함께 확인하세요. 예시의 PostgreSQL 호스트 `postgres`는 컨테이너 내부 주소이며, Windows에서 직접 실행하면서 DB에 연결할 때는 `localhost:5433`을 사용해야 합니다. `.env` 파일이나 실제 토큰은 저장소에 커밋하지 마세요.
 

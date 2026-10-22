@@ -85,12 +85,12 @@ USB 웹캠 실시간 분석은 FastAPI 컨테이너가 아니라 웹캠이 연�
 `서비스_6클래스_가중치_v2.0.zip`을 풀어 `ours_stack` 폴더를 `storeops_ai/training/runs/ours_stack/`에 둡니다.
 압축 안 `SHA256SUMS.txt`로 파일이 맞는지 확인합니다.
 
-| 파일 | 내용 |
-| ---- | ---- |
-| `s3d_c1_6.pt` | 사람 크롭 S3D(C1), 6클래스 |
-| `pose_head6.pt` / `fusion_c1p.json` | C1+P (기본값) |
+| 파일                                     | 내용                                |
+| ---------------------------------------- | ----------------------------------- |
+| `s3d_c1_6.pt`                            | 사람 크롭 S3D(C1), 6클래스          |
+| `pose_head6.pt` / `fusion_c1p.json`      | C1+P (기본값)                       |
 | `pose_head6_rel.pt` / `fusion_c1pr.json` | C1+(P+R) 관절+사람-물건 관계 (권장) |
-| `object_det.pt` | 물건 탐지기 (P+R 헤드일 때만) |
+| `object_det.pt`                          | 물건 탐지기 (P+R 헤드일 때만)       |
 
 운영 가중치는 Git에 포함되지 않으므로 별도로 전달받아 배치해야 합니다. Qwen
 Compose는 프롬프트당 이미지 최대 3장을 허용하며, VLM 게이트 기본 입력도

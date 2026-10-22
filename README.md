@@ -59,17 +59,17 @@ StoreOpsAI/
 
 ## 구성 및 주소
 
-| 서비스           | Compose 서비스 | 로컬 주소                                                | 용도                          |
-| ---------------- | -------------- | -------------------------------------------------------- | ----------------------------- |
-| 점주 프런트엔드  | `frontend`     | [http://localhost:5173](http://localhost:5173)           | 사건·발주 화면                |
-| 업무 백엔드      | `backend`      | [http://localhost:8000](http://localhost:8000)           | 인증, 사건 API, 서비스 프록시 |
-| 백엔드 API 문서  | `backend`      | [http://localhost:8000/docs](http://localhost:8000/docs) | OpenAPI/Swagger               |
-| 수요·발주 서비스 | `demand`       | [http://localhost:8765](http://localhost:8765)           | 예측·발주 API 및 데모         |
-| CCTV 탐지 API    | `storeops-ai`  | [http://localhost:8100](http://localhost:8100)           | 입력 영상·카메라 API           |
-| 탐지 PC 라이브 화면 | 호스트 실행기 | `http://<탐지PC_IP>:8101` (내부 전용)                     | 인증된 JPEG 화면 원본          |
-| PostgreSQL       | `postgres`     | `localhost:5433`                                         | 업무 데이터 영속 저장         |
-| Qwen VLM 서버    | `qwen-vllm`    | `http://localhost:8001`                                  | CCTV 대표 이미지 설명         |
-| 질문 Agent       | 원격 Docker    | `http://<QNA_PC_IP>:8002`                                | 질문 처리 및 규정 검색        |
+| 서비스              | Compose 서비스 | 로컬 주소                                                | 용도                          |
+| ------------------- | -------------- | -------------------------------------------------------- | ----------------------------- |
+| 점주 프런트엔드     | `frontend`     | [http://localhost:5173](http://localhost:5173)           | 사건·발주 화면                |
+| 업무 백엔드         | `backend`      | [http://localhost:8000](http://localhost:8000)           | 인증, 사건 API, 서비스 프록시 |
+| 백엔드 API 문서     | `backend`      | [http://localhost:8000/docs](http://localhost:8000/docs) | OpenAPI/Swagger               |
+| 수요·발주 서비스    | `demand`       | [http://localhost:8765](http://localhost:8765)           | 예측·발주 API 및 데모         |
+| CCTV 탐지 API       | `storeops-ai`  | [http://localhost:8100](http://localhost:8100)           | 입력 영상·카메라 API          |
+| 탐지 PC 라이브 화면 | 호스트 실행기  | `http://<탐지PC_IP>:8101` (내부 전용)                    | 인증된 JPEG 화면 원본         |
+| PostgreSQL          | `postgres`     | `localhost:5433`                                         | 업무 데이터 영속 저장         |
+| Qwen VLM 서버       | `qwen-vllm`    | `http://localhost:8001`                                  | CCTV 대표 이미지 설명         |
+| 질문 Agent          | 원격 Docker    | `http://<QNA_PC_IP>:8002`                                | 질문 처리 및 규정 검색        |
 
 브라우저는 백엔드의 `/api`만 호출합니다. USB 카메라는 탐지 PC에 연결하며, 탐지 PC의 `pipelines/path1_webcam.py`가 영상을 읽고 YOLO·S3D로 연속 분석합니다. 이상행동 후보는 VLM 게이트가 확인하며, 기본 설정은 VLM 오류 시 사건을 놓치지 않도록 fail-open입니다. 백엔드는 점주 세션을 확인한 뒤 탐지 PC의 인증된 JPEG를 중계하고 사건을 저장합니다. 브라우저는 탐지 PC 포트에 직접 접근하지 않습니다. 감시용 Qwen VLM은 Compose 또는 별도 PC에서 실행할 수 있고, 질문 Agent와 텍스트 LLM은 별도 PC에서 운영합니다.
 
@@ -110,7 +110,7 @@ nvidia-smi
 
 | 기능                       | 버전 및 하드웨어                                                                                                  | 모델 준비 및 실행                                                                                                                                                           |
 | -------------------------- | ----------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| CCTV 행동 탐지             | Python 3.12 권장, PyTorch 2.0 이상, torchvision 0.15 이상. CPU 가능, NVIDIA GPU는 선택                            | YOLO 파일은 포함되지만 운영 S3D/C1/P 가중치는 Git에서 제외됩니다. 별도 전달받은 가중치를 준비하고 [CCTV 탐지 README](storeops_ai/README.md)를 따르세요. |
+| CCTV 행동 탐지             | Python 3.12 권장, PyTorch 2.0 이상, torchvision 0.15 이상. CPU 가능, NVIDIA GPU는 선택                            | YOLO 파일은 포함되지만 운영 S3D/C1/P 가중치는 Git에서 제외됩니다. 별도 전달받은 가중치를 준비하고 [CCTV 탐지 README](storeops_ai/README.md)를 따르세요.                     |
 | 수요 예측                  | Python 3.12, pandas 3.0.6, xgboost-cpu 3.4.1, scikit-learn 1.9.1. GPU 불필요                                      | 학습 모델이 포함되어 있습니다. 단독 실행은 [수요 서비스 README](storeops-demand/README.md), 전체 연동은 Docker Compose를 사용합니다.                                        |
 | 점주 질문 서비스           | 원격 Agent·LLM PC                                                                                                 | 질문 Agent와 텍스트 LLM은 이 저장소의 Compose에 포함되지 않습니다. 원격 서비스 주소와 공유 토큰을 `.env`에 설정합니다.                                                      |
 | CCTV 이미지 설명(Qwen VLM) | WSL2 Ubuntu 26.04.1, Python 3.14, PyTorch 2.13.0+cu130, CUDA 13.0, FlashInfer 0.6.18.post1, vLLM. NVIDIA GPU 필요 | Qwen3-VL-8B-Instruct-FP8 모델을 내려받습니다. RTX A4000 16GB에서 검증된 구성입니다. 전체 설치 절차는 [CCTV 탐지 README](storeops_ai/README.md)의 WSL2/vLLM 항목을 따릅니다. |
@@ -253,7 +253,7 @@ Invoke-RestMethod http://localhost:8100/path1/analyze -Method Post -ContentType 
 | `GET`         | `/api/events?limit=5`                                       | 최근 사건 미리보기              |
 | `GET`         | `/api/events`                                               | 매장 전체 사건 목록             |
 | `GET`         | `/api/events/{event_id}`                                    | 사건 상세                       |
-| `GET`         | `/api/camera/live-frame?after={seq}`                        | 탐지 PC의 새 화면 JPEG 중계      |
+| `GET`         | `/api/camera/live-frame?after={seq}`                        | 탐지 PC의 새 화면 JPEG 중계     |
 | `POST`        | `/api/events/{event_id}/status`                             | 사건 상태 변경                  |
 | `GET`         | `/api/events/{event_id}/history`                            | 상태 변경 이력                  |
 | `GET`         | `/api/events/{event_id}/clip`                               | 사건 영상                       |
