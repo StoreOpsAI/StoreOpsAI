@@ -227,6 +227,9 @@ VLM_ON_EVENT = os.getenv("VLM_ON_EVENT", "0") == "1"
 # VLM_GATE_FAIL_OPEN=1이면 VLM 실패·미설정 때도 보낸다(실제 사건을 장애로 놓치지 않게). 0이면 보내지 않는다.
 VLM_GATE_ENABLED = os.getenv("VLM_GATE_ENABLED", "1") == "1"
 VLM_GATE_FAIL_OPEN = os.getenv("VLM_GATE_FAIL_OPEN", "1") == "1"
+# 물건 우선 유기·절도(정지 물건 + 손 주인 + 떠남) 경보도 VLM 확인을 거칠지. 기본 0 = 거치지 않고 바로 보낸다(사용자 결정 2026-10-27:
+# 시연에서 물건 우선 후보 3건이 모두 VLM 기각 — 약 384px 3장으로는 손에 든 물건·놓기 장면을 못 봄). 모델 경로 경보는 그대로 VLM 확인.
+OBJECT_FIRST_VLM_GATE = os.getenv("OBJECT_FIRST_VLM_GATE", "0") == "1"
 # Qwen 설정의 프롬프트당 이미지 제한에 맞춰 사건 확인 프레임은 3장만 저장한다.
 VLM_GATE_MAX_FRAMES = int(os.getenv("VLM_GATE_MAX_FRAMES", "3"))
 # 점주 대시보드 실시간 화면(utils/live_stream.py): 탐지 화면을 토큰(EVENT_INGEST_TOKEN)이 맞는 요청에만 준다. 백엔드가 점주 로그인 확인 뒤 중계한다

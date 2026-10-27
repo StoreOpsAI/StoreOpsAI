@@ -59,6 +59,15 @@ class VLMGateTest(unittest.TestCase):
         self.assertEqual((sent, media, published), (["E1"], ["E1"], ["event.created"]))
         self.assertTrue(gate.is_sent("E1"))
 
+    def test_mark_sent_uploads_media_without_vlm(self):   # 물건 우선 경보(VLM 확인 없이 보냄)도 영상은 올라가야 한다
+        vlm, media = FakeVLM(), []
+        with patch.object(vlm_gate, "send_event_media", side_effect=lambda e: media.append(e.event_id)):
+            gate = VLMGate(vlm, FakeEvents(), lambda kind, data: None, NowExecutor())
+            gate.mark_sent("E1")
+            gate.media_ready(SimpleNamespace(event_id="E1"))
+        self.assertEqual((media, vlm.calls), (["E1"], []))
+        self.assertTrue(gate.is_sent("E1"))
+
     def test_rejected_is_not_sent(self):
         event, gate, published, sent, media = run(FakeVLM({**GOOD, "confirmed": False}))
         self.assertEqual((sent, media, published, event.status), ([], [], [], "VLM 기각"))

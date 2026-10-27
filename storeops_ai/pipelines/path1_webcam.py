@@ -56,6 +56,7 @@ from models.i3d_classifier import I3DClassifier
 from models.pose_head import WIN, pick_largest, window_feature
 from models.object_detector import ObjectDetector
 from utils.relation_features import RelationTracker
+from config.config import OBJECT_FIRST_VLM_GATE
 from config.config import CAMERA_LOCK, OBJECT_DETECTOR_PATH, STATIC_THEFT_OBJECT_FIRST, STATIC_ABANDON_OBJECT_FIRST, ABANDON_CATEGORY, ALERT_SHOW_SEC
 from config.config import HAND_OBJECT_ENABLED, HAND_OBJECT_DIR, HAND_OBJECT_CONF
 from utils.hand_object import HandObjectDetector, HandState, draw_hands
@@ -357,6 +358,7 @@ class Path1Webcam:
         end_frame,
         start_time,
         end_time,
+        gate=True,
     ):
         event_id = self.events.next_event_id()
         clip_path = CLIP_DIR / f"{event_id}_2to4sec.mp4"
@@ -389,12 +391,14 @@ class Path1Webcam:
         )
 
         self.events.save(event)
-        if self.vlm_gate is not None:   # VLM이 맞다고 해야 백엔드·대시보드로 보낸다(결과는 비동기로 vlm_gate가 처리)
+        if self.vlm_gate is not None and gate:   # VLM이 맞다고 해야 백엔드·대시보드로 보낸다(결과는 비동기로 vlm_gate가 처리)
             vlm_images = save_all_images(clip_frames, IMAGE_DIR, event_id, VLM_GATE_MAX_FRAMES)   # 대표 3장이 아니라 클립 프레임 전부
             self.vlm_gate.submit(event, vlm_images, BEHAVIOR_DEFINITIONS.get(category, category), len(clip_frames) / max(fps, 1e-6))
             self.events_issued.append(event)
             print(f"\n[EVENT 후보] {event_id} | {category} | {confidence:.3f} | VLM 확인 대기")
             return event
+        if self.vlm_gate is not None:   # VLM 확인 없이 보내는 사건(gate=False)도 영상이 나가게
+            self.vlm_gate.mark_sent(event_id)
         try:
             event.alert_sent = bool(send_first_alert(event))
         except Exception as exc:
@@ -487,7 +491,7 @@ class Path1Webcam:
         print(f"[물건 우선 {category}] t={now:.1f}s {kind} 자리={box} 손 주인={owner} 모델 점수={scores.get(category, 0.0):.3f} 떠남={getattr(self, 'depart_note', '-')}"
               + (f" 손 근거={hand}" if hand else ""))
         event = self._make_event(category, scores.get(category, 0.0), scores, [owner], [f for _, f in clip_pairs], [f for _, f in event_pairs],
-                                 fps, start, end, start / fps, end / fps)
+                                 fps, start, end, start / fps, end / fps, gate=OBJECT_FIRST_VLM_GATE)
         if hand:
             self.events.update(event.event_id, hand_evidence=hand)
             if hand.get("concealed"):

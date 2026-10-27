@@ -35,6 +35,11 @@ class VLMGate:
             return
         future.add_done_callback(lambda done, event=event: self._on_done(event, done))
 
+    def mark_sent(self, event_id: str) -> None:
+        """VLM 확인 없이 보낸 사건(물건 우선 경보)도 영상·진행 갱신이 나가게 보냄으로 기록한다."""
+        with self._lock:
+            self._decision[event_id] = True
+
     def is_sent(self, event_id: str) -> bool:
         """백엔드·대시보드로 보낸 사건인가(결정 전·기각이면 False). 영상 진행 상태 갱신을 이걸로 거른다."""
         with self._lock:
