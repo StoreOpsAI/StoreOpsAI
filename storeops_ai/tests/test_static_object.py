@@ -85,6 +85,11 @@ def _self_check() -> None:
     d, t = scenario(with_obj, [(with_obj, [], 20), (person, [body], 10), (empty, [], 60)])   # 절도: 사람이 덮었다가 떠난 뒤 물건이 없음
     assert d.recently_flagged(t, "removed") and d.owner["removed"] == 9, d.owner                # 들고 나간 사람 = 마지막으로 덮은 사람
     assert 4.0 <= d.touch_time["removed"] <= 5.8 < d.last_time["removed"] - 2.0, (d.touch_time, d.last_time)   # 클립 기준 = 사람이 덮은 4.0~5.8초(비킨 뒤 확정 - Ts가 아님)
+    d = make(); assert d.set_model(fit([noise(with_obj) for _ in range(40)], 0.9999, 0.4), with_obj.shape); t = 0.0   # 손은 처음 3번만 닿고 몸은 계속 덮음(놓은 뒤 옆에 섬)
+    for i, (scene, boxes) in enumerate([(with_obj, [])] * 20 + [(person, [body])] * 10 + [(empty, [])] * 60):
+        hands = [(9, *body)] if 20 <= i < 23 else []
+        d.update(noise(scene), t, boxes, hands + [(9, *b) for b in boxes], n_hands=len(hands)); t += 0.2
+    assert d.owner["removed"] == 9 and 4.0 <= d.touch_time["removed"] <= 4.4 + 1e-6, d.touch_time   # 클립 기준 = 손이 닿은 시각(몸이 떠난 5.8초가 아님)
     d, t = scenario(empty, [(empty, [], 20), (person, [body], 10), (with_obj, [], 60)])        # 유기: 사람이 덮었다가 떠난 뒤 물건이 남음
     assert d.recently_flagged(t, "abandoned") and d.owner["abandoned"] == 9, d.owner
     d, t = scenario(empty, [(person, [body], 80)])                                            # 가만히 선 사람은 물건이 아니다(사람 박스로 거름)

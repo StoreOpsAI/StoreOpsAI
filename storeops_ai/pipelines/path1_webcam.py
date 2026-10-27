@@ -840,7 +840,7 @@ class Path1Webcam:
                 points = [(tid, *hb) for tid, (xy, cf) in self.latest_keypoints.items() if tid in heights and cf is not None
                           for side in HAND_SIDES if (hb := hand_box(xy, cf, side, STATIC_WRIST_CONF)) is not None]   # OpenPose 손 상자(왼·오른)
                 trail = reach_boxes(points, [d[:5] for d in display_detections if d[0] >= 0])   # 주인 후보: 손 상자 + 사람 박스(덮은 화소를 정지 물건 쪽에서 기록)
-                self.static_objects.update(frame, now, [d[1:5] for d in display_detections], trail)
+                self.static_objects.update(frame, now, [d[1:5] for d in display_detections], trail, n_hands=len(points))   # trail 앞쪽이 손 상자
                 for kind, last in self.static_objects.last_time.items():   # 경보 근거가 되는 '주인 인정' 확인은 빠짐없이 남긴다
                     if self.debug and last == now:
                         print(f"[물건 확인] t={now:.1f}s {kind} 영역={self.static_objects.boxes} 주인 번호={self.static_objects.owner.get(kind)}")
