@@ -472,7 +472,11 @@ class Path1Webcam:
         scores = dict(latest["scores"]) if latest else {}
         # 경보는 주인이 떠난 뒤(수 초~수십 초 뒤)라 직전 4초에는 놓거나 집는 동작이 없다(run31 E012 8.5초, run34 E003 22.2초 뒤).
         # 클립은 물건이 멈춘 시점 t0 = 확정 - Ts의 역추적 창 t0 ± Ts로 잡는다(Lin 외 TIFS 2015, 손 근거와 같은 창). 버퍼에 없는 앞부분은 빠진다
-        f0, ts = int(round((self.static_objects.last_time[kind] - self.hand_ts) * fps)), max(1, int(round(self.hand_ts * fps)))
+        # 단, 사람이 그 자리를 가리는 동안은 증거가 안 쌓여 확정 - Ts가 '사람이 비킨 시점'이 된다(2026-10-27 시연 E004: 38.5초에 집고 43.7초 확정,
+        # 창 39.5~43.7초라 VLM 3장 중 2장이 빈 화면 → 기각). 주인 손·몸이 그 자리를 마지막으로 덮은 시각(같은 Lin 역추적 창 안)이 있으면 그 시각 ± Ts로 잡는다
+        touch = self.static_objects.touch_time.get(kind)
+        t0 = touch if touch is not None else self.static_objects.last_time[kind] - self.hand_ts
+        f0, ts = int(round(t0 * fps)), max(1, int(round(self.hand_ts * fps)))
         clip_pairs = [(n, f) for n, f in self.event_frames if f0 - ts <= n <= f0 + ts] or list(self.event_frames)[-max(1, int(CLIP_MAX_SEC * fps)):]
         event_pairs = list(self.event_frames)[-max(1, int(EVENT_VIDEO_SEC * fps)):]
         start = clip_pairs[0][0] if clip_pairs else frame_no

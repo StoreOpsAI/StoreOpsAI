@@ -84,6 +84,7 @@ def _self_check() -> None:
         return det, t
     d, t = scenario(with_obj, [(with_obj, [], 20), (person, [body], 10), (empty, [], 60)])   # 절도: 사람이 덮었다가 떠난 뒤 물건이 없음
     assert d.recently_flagged(t, "removed") and d.owner["removed"] == 9, d.owner                # 들고 나간 사람 = 마지막으로 덮은 사람
+    assert 4.0 <= d.touch_time["removed"] <= 5.8 < d.last_time["removed"] - 2.0, (d.touch_time, d.last_time)   # 클립 기준 = 사람이 덮은 4.0~5.8초(비킨 뒤 확정 - Ts가 아님)
     d, t = scenario(empty, [(empty, [], 20), (person, [body], 10), (with_obj, [], 60)])        # 유기: 사람이 덮었다가 떠난 뒤 물건이 남음
     assert d.recently_flagged(t, "abandoned") and d.owner["abandoned"] == 9, d.owner
     d, t = scenario(empty, [(person, [body], 80)])                                            # 가만히 선 사람은 물건이 아니다(사람 박스로 거름)

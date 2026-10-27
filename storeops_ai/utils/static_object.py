@@ -63,6 +63,8 @@ class StaticObjectDetector:
         self.flag_age: np.ndarray | None = None   # 화소별 확정 상태가 이어진 시간(흡수용)
         self.cover_tid: np.ndarray | None = None   # 화소별 마지막으로 덮은 사람 번호(손·몸 상자). 주인 역추적용(Lin 외 TIFS 2015 back-tracing)
         self.cover_step: np.ndarray | None = None  # 그 처리 번호(클수록 최근)
+        self.cover_t: np.ndarray | None = None     # 그 처리 시각(초). 주인 손이 그 자리를 마지막으로 덮은 시각 = VLM 클립 기준
+        self.touch_time: dict[str, float | None] = {"abandoned": None, "removed": None}   # 종류별 주인이 마지막으로 덮은 시각
         self.full_step: np.ndarray | None = None   # 화소별 증거가 가득 찬 처리 번호(Lin 2015의 t, 역추적 기준 시점)
         self._step = 0
         self._taken = None   # 마지막으로 가져간 흡수 물건 (상자, 화소, 물건 모습)
@@ -77,7 +79,8 @@ class StaticObjectDetector:
         if model.mu.shape[:2] != (h, w):
             return False
         self.model = model
-        self.evidence = self.flag_age = self.cover_tid = self.cover_step = self.full_step = None
+        self.evidence = self.flag_age = self.cover_tid = self.cover_step = self.cover_t = self.full_step = None
+        self.touch_time = {"abandoned": None, "removed": None}
         self.last_time = {"abandoned": None, "removed": None}
         self.owner = {"abandoned": None, "removed": None}
         self._recent.clear()
@@ -119,7 +122,7 @@ class StaticObjectDetector:
             people[max(0, int(y1 * self.scale)):int(y2 * self.scale) + 1, max(0, int(x1 * self.scale)):int(x2 * self.scale) + 1] = True
         self._step += 1
         if trail_points is not None:
-            self._paint_cover(trail_points, fs)
+            self._paint_cover(trail_points, fs, t)
         # Lin 외 TIFS 2015: 사람 영역을 미리 지우지 않고 멈춘 전경 전체에서 정지 후보를 뽑은 뒤, 사람인 후보를 사람 검출로 거른다(아래 영역 단계)
         static = fl & ~fs
         self.evidence = np.where(static, self.evidence + 1, self.evidence - self.k).clip(0, self.max_e)
@@ -148,7 +151,7 @@ class StaticObjectDetector:
                     continue   # 사람인 정지 후보(가만히 선 사람 등)는 버린다(Lin 2015: 사람 검출기로 사람 모양 정지 전경을 거름)
                 kind = self._heal_type(flagged, stat, small, background)
                 nearest = self._nearest(box, trail_points) if trail_points is not None else None   # 진단 출력용(지금 가장 가까운 후보)
-                owner = self._last_cover(labels == label) if trail_points is not None else None   # 그 자리를 마지막으로 덮은 사람
+                owner, touch = self._last_cover(labels == label) if trail_points is not None else (None, None)   # 그 자리를 마지막으로 덮은 사람·시각
                 self.debug_regions.append({"t": t, "box": box, "area": int(stat[cv2.CC_STAT_AREA]), "kind": kind or "unclear",
                                            "wrists": None if trail_points is None else len(trail_points),
                                            "hand_gap": None if not nearest else round(nearest[1], 1)})
@@ -164,7 +167,7 @@ class StaticObjectDetector:
                     self.owner[kind] = self.owner[other] = None
                     continue
                 if kind and (trail_points is None or owner is not None):
-                    self.last_time[kind], self.owner[kind] = t, owner
+                    self.last_time[kind], self.owner[kind], self.touch_time[kind] = t, owner, touch
                     self.boxes = [box]
                     self.kind_box[kind] = box
 
@@ -180,28 +183,29 @@ class StaticObjectDetector:
         textured = den > TEXTURE_MIN_ENERGY * self.texture_win ** 2   # 둘 다 무늬 없음(평평한 바닥 위 평평한 물건)은 판단 안 함
         return textured & (num >= self.texture_sim * den)
 
-    def _paint_cover(self, boxes: Sequence[tuple[int, float, float, float, float]], moving: np.ndarray) -> None:
+    def _paint_cover(self, boxes: Sequence[tuple[int, float, float, float, float]], moving: np.ndarray, t: float = 0.0) -> None:
         """이번 처리에서 손·몸 상자 안의 움직이는 화소(그 사람의 전경)에 사람 번호와 처리 번호를 남긴다.
         Lin 2015는 물건 자리의 사람 전경 덩어리를 주인으로 본다. 상자만 겹치고 몸이 그 자리를 지나지 않았거나 가만히 선 경우는 남기지 않는다."""
         if self.cover_tid is None or self.cover_tid.shape != moving.shape:
             self.cover_tid, self.cover_step = np.full(moving.shape, -1, np.int32), np.full(moving.shape, -1, np.int64)
+            self.cover_t = np.full(moving.shape, np.nan, np.float64)
         for tid, x1, y1, x2, y2 in boxes:
             ys = slice(max(0, int(y1 * self.scale)), max(0, int(y2 * self.scale) + 1))
             xs = slice(max(0, int(x1 * self.scale)), max(0, int(x2 * self.scale) + 1))
             hit = moving[ys, xs]
-            self.cover_tid[ys, xs][hit], self.cover_step[ys, xs][hit] = tid, self._step
+            self.cover_tid[ys, xs][hit], self.cover_step[ys, xs][hit], self.cover_t[ys, xs][hit] = tid, self._step, t
 
-    def _last_cover(self, mask: np.ndarray) -> int | None:
+    def _last_cover(self, mask: np.ndarray) -> tuple[int | None, float | None]:
         """물건이 멈춘 시점 근처에 그 자리를 덮은(움직인) 사람 번호. 없으면 None(주인 없음 = 경보 안 함).
         Lin 외 TIFS 2015 back-tracing: 정지 판정 시점 t에서 t0 = t - Ts(Ts = 정지 판정에 걸리는 시간)로 돌아가 그 근처 창에서 주인을 찾는다.
         우리 Ts = 증거가 차는 처리 수(max_e). 창은 t0 앞뒤 Ts로 둔다(손이 덮은 마지막 움직임은 t0 직전이라 논문의 [t0, t0+δ]를 앞으로 넓힘, δ=Ts는 근거 약함).
         몇 분 전 지나간 사람이 주인이 되던 문제(run27) 대응. ponytail: 멈춘 뒤 그 자리를 가리고 지나가 증거가 다시 차면 그 사람이 주인(논문도 같은 한계, 막으려면 색 추적)."""
         if self.cover_step is None or self.full_step is None:
-            return None
+            return None, None
         near = (self.full_step >= 0) & (np.abs(self.cover_step - (self.full_step - self.max_e)) <= self.max_e)
         steps = np.where(mask & near, self.cover_step, -1)
         i = int(np.argmax(steps))
-        return int(self.cover_tid.flat[i]) if steps.flat[i] >= 0 else None
+        return (int(self.cover_tid.flat[i]), float(self.cover_t.flat[i])) if steps.flat[i] >= 0 else (None, None)
 
     def _maintain(self, small: np.ndarray, busy: np.ndarray, changed: np.ndarray, people: np.ndarray) -> None:
         """빈 화면 평균을 빛 변화에 맞춰 천천히 갱신하고, 오래 확정된 물건 영역은 배경으로 흡수한다(Tian 외 2011)."""
@@ -308,7 +312,7 @@ class StaticObjectDetector:
         self.evidence[sel] = 0
         if self.flag_age is not None:
             self.flag_age[sel] = 0
-        self.last_time[kind], self.owner[kind] = None, None
+        self.last_time[kind], self.owner[kind], self.touch_time[kind] = None, None, None
 
     def _restore_absorbed(self, box: tuple[int, int, int, int]) -> bool:
         """없어진 영역의 중심이 흡수했던 물건 상자 안이면 그 화소의 기준을 흡수 전(빈 화면)으로 되돌리고 True."""
