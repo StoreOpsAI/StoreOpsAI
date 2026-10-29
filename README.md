@@ -57,6 +57,8 @@ StoreOpsAI/
 
 세부 설정과 사용법은 [백엔드 README](backend/README.md), [프런트엔드 README](frontend/README.md), [수요 서비스 README](storeops-demand/README.md), [CCTV 탐지 README](storeops_ai/README.md)를 참고하세요. 질문 Agent는 저장소 외부 PC에서 운영하며, 연결 값은 루트 `.env`에 설정합니다.
 
+백엔드·웹캠 탐지·프런트엔드를 각각 다른 PC에서 실행하려면 [세 PC Docker 연결 설정](THREE_PC_DOCKER_SETUP.md)의 PC별 Compose 파일과 원격 주소 설정을 따릅니다.
+
 ## 구성 및 주소
 
 | 서비스              | Compose 서비스 | 로컬 주소                                                | 용도                          |
