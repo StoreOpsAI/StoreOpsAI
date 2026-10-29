@@ -20,6 +20,7 @@ class AnalyzeRequest(BaseModel):
 class EventStatusRequest(BaseModel):
     status: Literal["확인", "오탐"]
 
+
 @router.post("/analyze")
 def analyze_video(req: AnalyzeRequest):
     if not Path(req.video_path).exists():
@@ -27,6 +28,7 @@ def analyze_video(req: AnalyzeRequest):
     pipeline = Path1BehaviorPipeline(req.camera_id, req.i3d_weight_path, req.debug)
     events = pipeline.analyze(req.video_path)
     return {"issued_event_count": len(events), "events": [e.to_dict() for e in events]}
+
 
 @router.get("/events")
 def list_events():

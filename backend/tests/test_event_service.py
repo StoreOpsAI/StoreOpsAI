@@ -1,12 +1,16 @@
 """사건 상태 전이와 변경 이력을 검증하는 단위 테스트입니다."""
 
 import unittest
+import asyncio
 from datetime import datetime, timezone
+from concurrent.futures import ThreadPoolExecutor
+from uuid import uuid4
 import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 from fastapi import HTTPException
+from starlette.requests import Request
 
 from app.repositories.event_repository import EventRepository, PostgresEventRepository
 from app.routers.internal_events import create_internal_events_router, _store_representative_images
@@ -71,6 +75,43 @@ class EventServiceTest(unittest.TestCase):
 
         self.assertEqual(event.status, 'not_applicable')
 
+    def test_event_list_limit_keeps_newest_events(self) -> None:
+        """미리보기 개수 제한은 최신 사건부터 적용합니다."""
+
+        repository = EventRepository()
+        repository.seed([
+            Event(
+                event_id=f'E{index:03d}',
+                store_id='S01',
+                camera_id='CAM-01',
+                source='behavior_model',
+                event_type='fall',
+                occurred_at=f'2026-03-14T21:{index:02d}:00+09:00',
+                vlm=EventVlm(status='pending'),
+                status='unconfirmed',
+            )
+            for index in (1, 2, 3)
+        ])
+
+        events = repository.list_events(store_id='S01', limit=2)
+
+        self.assertEqual([event.event_id for event in events], ['E003', 'E002'])
+
+    def test_postgres_event_list_passes_limit_to_query(self) -> None:
+        """PostgreSQL 조회도 LIMIT 파라미터로 응답 행 수를 제한합니다."""
+
+        repository = PostgresEventRepository()
+        with patch('app.repositories.event_repository.connect') as connection:
+            cursor = connection.return_value.__enter__.return_value.cursor.return_value.__enter__.return_value
+            cursor.fetchall.return_value = []
+
+            events = repository.list_events(store_id='S01', limit=5)
+
+        query, parameters = cursor.execute.call_args.args
+        self.assertIn('LIMIT %s', query)
+        self.assertEqual(parameters[-1], 5)
+        self.assertEqual(events, [])
+
     def test_ingests_detector_event_from_token_store_mapping(self) -> None:
         """탐지기 사건의 매장과 ID는 서버 설정과 저장소가 결정합니다."""
 
@@ -95,8 +136,94 @@ class EventServiceTest(unittest.TestCase):
         self.assertEqual(event.event_type, 'fall')
         self.assertEqual(event.threshold, 0.60)
         self.assertEqual(event.status, 'unconfirmed')
-        self.assertNotEqual(duplicate.event_id, event.event_id)
-        self.assertEqual(len(self.service.list_events('S02')), 2)
+        self.assertEqual(duplicate.event_id, event.event_id)
+        self.assertEqual(len(self.service.list_events('S02')), 1)
+
+    def test_uuid_retry_preserves_status_and_does_not_allocate_another_number(self) -> None:
+        """재전송 시 점주가 변경한 상태와 사건 번호를 유지합니다."""
+
+        ingest = create_internal_events_router(self.service).routes[0].endpoint
+        payload = EventIngestRequest(event_uid=uuid4(), camera_id='CAM-02', event_type='fall')
+        with patch.dict('os.environ', {'STOREOPS_AI_INGEST_TOKENS_JSON': '{"test-token":"S02"}'}):
+            first = ingest(payload, 'Bearer test-token')
+            self.service.change_status(first.event_id, 'confirmed', 'owner-01')
+            duplicate = ingest(payload, 'Bearer test-token')
+            another = ingest(payload.model_copy(update={'event_uid': uuid4()}), 'Bearer test-token')
+        self.assertEqual(duplicate.event_id, first.event_id)
+        self.assertEqual(duplicate.status, 'confirmed')
+        self.assertEqual(another.event_id, 'E002')
+        self.assertNotIn('event_uid', duplicate.model_dump())
+
+    def test_concurrent_uuid_retries_create_one_event(self) -> None:
+        """동시에 들어온 동일 사건은 한 건만 저장합니다."""
+
+        ingest = create_internal_events_router(self.service).routes[0].endpoint
+        payload = EventIngestRequest(event_uid=uuid4(), camera_id='CAM-02', event_type='fall')
+        with patch.dict('os.environ', {'STOREOPS_AI_INGEST_TOKENS_JSON': '{"test-token":"S02"}'}):
+            with ThreadPoolExecutor(max_workers=8) as executor:
+                events = list(executor.map(lambda _: ingest(payload, 'Bearer test-token'), range(16)))
+        self.assertEqual(len({event.event_id for event in events}), 1)
+        self.assertEqual(len(self.service.list_events('S02')), 1)
+
+    def test_uuid_is_scoped_to_store_and_camera(self) -> None:
+        """다른 매장이나 카메라의 같은 식별자는 별도 사건으로 처리합니다."""
+
+        ingest = create_internal_events_router(self.service).routes[0].endpoint
+        payload = EventIngestRequest(event_uid=uuid4(), camera_id='CAM-02', event_type='fall')
+        with patch.dict('os.environ', {'STOREOPS_AI_INGEST_TOKENS_JSON': '{"first":"S02","second":"S03"}'}):
+            first = ingest(payload, 'Bearer first')
+            other_store = ingest(payload, 'Bearer second')
+            other_camera = ingest(payload.model_copy(update={'camera_id': 'CAM-03'}), 'Bearer first')
+        self.assertEqual(len({event.event_id for event in (first, other_store, other_camera)}), 3)
+
+    def test_ingest_keeps_korean_local_time_and_converts_utc(self) -> None:
+        """시간대가 명시된 한국 시각과 UTC 시각을 같은 사건 시각으로 저장합니다."""
+
+        ingest = create_internal_events_router(self.service).routes[0].endpoint
+        with patch.dict('os.environ', {'STOREOPS_AI_INGEST_TOKENS_JSON': '{"test-token":"S02"}'}):
+            for value in ('2026-10-12T12:00:00+09:00', '2026-10-12T03:00:00Z'):
+                payload = EventIngestRequest(event_uid=uuid4(), camera_id='CAM-02', event_type='fall', created_at=value)
+                event = ingest(payload, 'Bearer test-token')
+                self.assertEqual(event.occurred_at.isoformat(), '2026-10-12T12:00:00+09:00')
+
+    def test_ingest_requires_an_identity(self) -> None:
+        """UUID와 구형 원본 번호가 모두 없으면 재전송을 식별할 수 없어 거부합니다."""
+
+        ingest = create_internal_events_router(self.service).routes[0].endpoint
+        with patch.dict('os.environ', {'STOREOPS_AI_INGEST_TOKENS_JSON': '{"test-token":"S02"}'}):
+            with self.assertRaises(HTTPException) as error:
+                ingest(EventIngestRequest(camera_id='CAM-02', event_type='fall'), 'Bearer test-token')
+        self.assertEqual(error.exception.status_code, 422)
+
+    def test_postgres_retry_returns_existing_event_without_allocating_number(self) -> None:
+        """DB 재전송 경로는 잠금 후 기존 사건을 반환하고 번호나 상태를 갱신하지 않습니다."""
+
+        repository = PostgresEventRepository()
+        event = self.service.get_event('E015').model_copy(update={'event_uid': uuid4()})
+        with patch('app.repositories.event_repository.connect') as connection, \
+                patch.object(repository, 'get', return_value=event):
+            cursor = connection.return_value.__enter__.return_value.cursor.return_value.__enter__.return_value
+            cursor.fetchone.return_value = ('E015',)
+            self.assertEqual(repository.create(event.model_copy(update={'event_id': ''})), event)
+        queries = [call.args[0] for call in cursor.execute.call_args_list]
+        self.assertEqual(len(queries), 2)
+        self.assertIn('pg_advisory_xact_lock', queries[0])
+        self.assertIn('event_uid = %s', queries[1])
+
+    def test_postgres_new_event_stores_uuid_with_event_in_transaction(self) -> None:
+        """DB 신규 사건 경로는 번호를 발급하고 UUID를 사건 행에 함께 저장합니다."""
+
+        repository = PostgresEventRepository()
+        event = self.service.get_event('E015').model_copy(update={'event_uid': uuid4(), 'event_id': ''})
+        saved = event.model_copy(update={'event_id': 'E002'})
+        with patch('app.repositories.event_repository.connect') as connection, \
+                patch.object(repository, 'get', return_value=saved):
+            cursor = connection.return_value.__enter__.return_value.cursor.return_value.__enter__.return_value
+            cursor.fetchone.side_effect = [None, ('E002',)]
+            self.assertEqual(repository.create(event), saved)
+        insert = next(call for call in cursor.execute.call_args_list if 'INSERT INTO events' in call.args[0])
+        self.assertEqual(insert.args[1][0], 'E002')
+        self.assertEqual(insert.args[1][-1], event.event_uid)
 
     def test_maps_live_webcam_categories_to_dashboard_event_types(self) -> None:
         """실시간 웹캠 모델의 한글 카테고리를 사건 화면 종류로 변환합니다."""
@@ -228,6 +355,49 @@ class EventServiceTest(unittest.TestCase):
             [media.uri for media in media_rows],
             [f'representative_images/{name}' for name in file_names],
         )
+
+    def test_uploads_clip_to_backend_and_rejects_another_store(self) -> None:
+        """탐지 토큰의 매장을 확인하고 서버가 정한 경로에 MP4를 저장합니다."""
+
+        upload = next(
+            route.endpoint for route in create_internal_events_router(self.service).routes
+            if route.path == '/api/internal/events/{event_id}/media/{media_type}'
+        )
+        body = b'\x00\x00\x00\x18ftypisomtest'
+
+        def request(payload=body, content_type=b'video/mp4'):
+            async def receive():
+                return {'type': 'http.request', 'body': payload, 'more_body': False}
+
+            return Request(
+                {'type': 'http', 'method': 'PUT', 'headers': [(b'content-type', content_type)]},
+                receive,
+            )
+        with TemporaryDirectory() as temp_dir, patch.dict('os.environ', {
+            'STOREOPS_OUTPUT_DIR': temp_dir,
+            'STOREOPS_AI_INGEST_TOKENS_JSON': '{"owner-token":"S01","other-token":"S02"}',
+        }):
+            with self.assertRaises(HTTPException) as error:
+                asyncio.run(upload('E015', 'clip', request(), 'Bearer other-token'))
+            self.assertEqual(error.exception.status_code, 403)
+
+            event = asyncio.run(upload('E015', 'clip', request(), 'Bearer owner-token'))
+            self.assertEqual(event.clip.uri, 'clips/E015_10sec.mp4')
+            self.assertEqual((Path(temp_dir) / event.clip.uri).read_bytes(), body)
+
+            # 동일 사건의 재전송도 같은 미디어 항목을 갱신합니다.
+            event = asyncio.run(upload('E015', 'clip', request(), 'Bearer owner-token'))
+            self.assertEqual(event.clip.uri, 'clips/E015_10sec.mp4')
+
+            image = b'\xff\xd8image'
+            event = asyncio.run(upload('E015', 'frame_start', request(image, b'image/jpeg'), 'Bearer owner-token'))
+            self.assertEqual(event.representative_images[0].uri, 'representative_images/E015_1.jpg')
+            self.assertEqual((Path(temp_dir) / event.representative_images[0].uri).read_bytes(), image)
+
+            with self.assertRaises(HTTPException) as error:
+                asyncio.run(upload('E015', 'clip', request(b'not-an-mp4'), 'Bearer owner-token'))
+            self.assertEqual(error.exception.status_code, 422)
+            self.assertEqual((Path(temp_dir) / 'clips/E015_10sec.mp4').read_bytes(), body)
 
 
 if __name__ == '__main__':

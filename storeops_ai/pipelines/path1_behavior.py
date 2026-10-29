@@ -11,7 +11,7 @@ from typing import Dict, Optional
 import logging
 
 from config.config import (
-    YOLO_MODEL_PATH, TRACKER_CONFIG, CONF_THRESHOLD, PERSON_CLASS_ID,
+    YOLO_MODEL_PATH, TRACKER_CONFIG, CONF_THRESHOLD, PERSON_CLASS_ID, POSE_IMGSZ,
     CLIP_MIN_SEC, CLIP_MAX_SEC, EVENT_VIDEO_SEC, EVENT_VIDEO_PRE_SEC, EVENT_VIDEO_POST_SEC, CATEGORY_THRESHOLDS,
     EXPANDED_CROP_CATEGORIES, CROP_LARGEST_PERSON, EXPAND_X, EXPAND_Y, EVENT_DIR, CLIP_DIR, IMAGE_DIR, VLM_ON_EVENT,
     I3D_INPUT_MODE, I3D_WINDOW_SEC, I3D_INFER_INTERVAL_SEC, I3D_BUFFER_FPS, EVENT_COOLDOWN_SEC,
@@ -45,7 +45,7 @@ class Path1BehaviorPipeline:
     def __init__(self, camera_id="CAM001", i3d_weight_path=None, debug=False, vlm_transport=None):
         self.camera_id = camera_id
         self.debug = debug
-        self.detector = YOLODetector(YOLO_MODEL_PATH, TRACKER_CONFIG, CONF_THRESHOLD, PERSON_CLASS_ID)
+        self.detector = YOLODetector(YOLO_MODEL_PATH, TRACKER_CONFIG, CONF_THRESHOLD, PERSON_CLASS_ID, POSE_IMGSZ)
         self.i3d = I3DClassifier(i3d_weight_path)
         self.vlm = VLMAnalyzer(vlm_transport)
         self.events = EventManager(EVENT_DIR)
@@ -281,7 +281,7 @@ class Path1BehaviorPipeline:
         return self._issue(
             "scene", category, confidence, scores, track_ids,
             frames[clip_start:frame_no + 1], frames[ev_start:frame_no + 1],
-            fps, clip_start, frame_no, clip_start / fps, t_now)
+                fps, clip_start, frame_no, clip_start / fps, t_now)
 
     def analyze(self, video_path, score_provider: Optional[callable] = None):
         if I3D_INPUT_MODE != "full":
@@ -356,7 +356,10 @@ class Path1BehaviorPipeline:
                 if frame_no >= next_infer_full:
                     next_infer_full = frame_no + interval_frames
                     did_full_infer = True
-                    event = self._infer_full(small_buf, window_tids, frames, fps, frame_no, score_provider, window_boxes)
+                    event = self._infer_full(
+                        small_buf, window_tids, frames, fps, frame_no,
+                        score_provider, window_boxes,
+                    )
                     if event:
                         self._queue_event_video(event, frames, fps, frame_no)
 
@@ -402,7 +405,9 @@ class Path1BehaviorPipeline:
             if len(small_buf) >= 2 and (frame_no / fps) >= CLIP_MIN_SEC:
                 logger.info("영상(%.1fs)이 분류 윈도우(%.1fs)보다 짧아 전체 구간을 1회 분류합니다.",
                             frame_no / fps, I3D_WINDOW_SEC)
-                event = self._infer_full(small_buf, window_tids, frames, fps, frame_no - 1, score_provider)
+                event = self._infer_full(
+                    small_buf, window_tids, frames, fps, frame_no - 1, score_provider,
+                )
                 if event:
                     self._queue_event_video(event, frames, fps, frame_no - 1)
 
@@ -416,7 +421,7 @@ class Path1BehaviorPipeline:
         save_frames(annotated, tracked_path, fps)
         if self.debug:
             print(f"[완료] Bounding Box/Track 영상: {tracked_path}")
-            print(f"[완료] 이벤트 수: {len(self.issued_events)}")
+        print(f"[완료] 이벤트 수: {len(self.issued_events)}")
         return self.issued_events
 
 

@@ -29,13 +29,15 @@ from concurrent.futures import ThreadPoolExecutor
 import cv2
 import numpy as np
 
+from utils.camera_open import open_camera
+
 # 프로젝트 루트에서 실행할 때 config/models import가 가능하도록 보장
 ROOT = Path(__file__).resolve().parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from config.config import (
-    CATEGORY_THRESHOLDS, CROP_LARGEST_PERSON, I3D_WEIGHT_PATH, I3D_WINDOW_SEC, YOLO_MODEL_PATH, TRACKER_CONFIG, CONF_THRESHOLD, PERSON_CLASS_ID,
+    CATEGORIES, CATEGORY_THRESHOLDS, CROP_LARGEST_PERSON, I3D_WEIGHT_PATH, I3D_WINDOW_SEC, YOLO_MODEL_PATH, TRACKER_CONFIG, CONF_THRESHOLD, PERSON_CLASS_ID, POSE_IMGSZ,
 )
 from models.stack_head import largest_person_boxes, union_crop
 from models.yolo_detector import YOLODetector
@@ -48,6 +50,8 @@ DISPLAY_NAMES = {
     "쓰러짐": "FALL",
     "쓰레기 투기": "LITTERING",
     "절도": "THEFT",
+    "파손": "BREAK",
+    "방화": "FIRE",
 }
 
 
@@ -69,15 +73,17 @@ def parse_args():
                    help="모든 이상행동에 같은 EVENT 임계값을 쓸 때만 지정. 기본은 config의 카테고리별 임계값")
     p.add_argument("--width", type=int, default=1920, help="학습 영상과 같은 1920x1080(카메라가 지원하지 않으면 실제 해상도로 열린다)")
     p.add_argument("--height", type=int, default=1080)
+    p.add_argument("--allow-aspect", action="store_true", help="실제 화면비가 요청과 달라도 계속한다(학습과 입력 모양이 달라 성능 보장 없음)")
     return p.parse_args()
 
 
-def draw_score_panel(frame, scores, category, confidence, threshold, ready, meta, held=False):
+def draw_score_panel(frame, scores, category, confidence, threshold, ready, meta, held=False, issued=None, pending=False):
+    """issued가 주어지면(서비스) 실제 발급 여부로 EVENT를 표시하고, pending이면 확인 중 후보로 표시한다."""
     h, w = frame.shape[:2]
 
     # 반투명 검정 패널
     panel_w = min(430, w - 20)
-    panel_h = 300
+    panel_h = 210 + 20 * len(CATEGORIES)   # 클래스 줄 수만큼 패널을 늘린다
     overlay = frame.copy()
     cv2.rectangle(overlay, (10, 10), (10 + panel_w, 10 + panel_h), (0, 0, 0), -1)
     frame[:] = cv2.addWeighted(overlay, 0.72, frame, 0.28, 0)
@@ -103,8 +109,10 @@ def draw_score_panel(frame, scores, category, confidence, threshold, ready, meta
 
     if category:
         thr = threshold if threshold is not None else CATEGORY_THRESHOLDS.get(category, 1.0)
-        event = held or (category not in ("정상", "판정 보류") and confidence > thr)
-        text = f"{DISPLAY_NAMES.get(category, category)}  {confidence:.1%}"
+        event = held or (category not in ("정상", "판정 보류") and confidence > thr) if issued is None else issued
+        cand = pending and not event
+        name = DISPLAY_NAMES.get(category, category)
+        text = f"{name} CANDIDATE  {confidence:.1%}" if cand else f"{name}  {confidence:.1%}"
         cv2.putText(
             frame, text, (20, y),
             cv2.FONT_HERSHEY_SIMPLEX, 0.82,
@@ -113,17 +121,17 @@ def draw_score_panel(frame, scores, category, confidence, threshold, ready, meta
         y += 30
         cv2.putText(
             frame,
-            "EVENT DETECTED" if event else "NO EVENT",
+            "EVENT DETECTED" if event else "CHECKING (object / lying hold)" if cand else "NO EVENT",
             (20, y),
             cv2.FONT_HERSHEY_SIMPLEX, 0.58,
-            (0, 0, 255) if event else (0, 255, 0),
+            (0, 0, 255) if event else (0, 255, 255) if cand else (0, 255, 0),
             2,
         )
         y += 27
 
-        for c in ["정상", "쓰러짐", "쓰레기 투기", "절도"]:
+        for c in CATEGORIES:   # 서비스 스택의 클래스 전체(C1+P면 파손·방화 포함 6개)
             s = float(scores.get(c, 0.0))
-            label = f"{DISPLAY_NAMES[c]:8s} {s:6.1%}"
+            label = f"{DISPLAY_NAMES.get(c, c):8s} {s:6.1%}"
             cv2.putText(frame, label, (20, y),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.42, (235, 235, 235), 1)
             y += 20
@@ -170,20 +178,12 @@ def main():
     print(f"[OK] 학습되지 않은 서비스 카테고리: {classifier.missing_categories}")
     print()
 
-    cap = cv2.VideoCapture(args.camera, cv2.CAP_DSHOW)
-    if not cap.isOpened():
-        # 일부 카메라/PC에서는 DSHOW가 안 맞을 수 있으므로 기본 backend 재시도
-        cap.release()
-        cap = cv2.VideoCapture(args.camera)
-
-    if not cap.isOpened():
-        print(f"[ERROR] 웹캠을 열 수 없습니다: camera={args.camera}")
+    try:
+        cap = open_camera(args.camera, args.width, args.height, args.allow_aspect)
+    except RuntimeError as exc:
+        print(f"[ERROR] {exc}")
         print("다른 번호를 시도해보세요. 예: python webcam_i3d.py --camera 1")
         return 1
-
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, args.width)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, args.height)
-    cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
     # 실제 저장 간격은 wall-clock 기준. 카메라 FPS가 달라도 3fps 정도로 맞춘다.
     sample_interval = 1.0 / max(args.buffer_fps, 0.1)
@@ -200,7 +200,7 @@ def main():
     score_csv = csv.writer(score_file)
     score_csv.writerow(["경과초", "판정", "신뢰도", "정상", "쓰러짐", "쓰레기 투기", "절도"])
     print(f"기록: {rec_dir / (stamp + '.mp4')} / {rec_dir / (stamp + '_scores.csv')}")
-    detector = YOLODetector(YOLO_MODEL_PATH, TRACKER_CONFIG, CONF_THRESHOLD, PERSON_CLASS_ID) if classifier.has_stack else None
+    detector = YOLODetector(YOLO_MODEL_PATH, TRACKER_CONFIG, CONF_THRESHOLD, PERSON_CLASS_ID, POSE_IMGSZ) if classifier.has_stack else None
     print("A+C1 스택:", "사용" if detector else "미사용(A 단독)")
     buffer_times = deque(maxlen=max_frames)
 

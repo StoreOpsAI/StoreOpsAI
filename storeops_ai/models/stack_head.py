@@ -15,19 +15,24 @@ CROP_PAD = 0.5          # 사람 박스 합집합을 사방 폭·높이의 50%�
 MIN_SIDE_RATIO = 0.25   # 정사각형 한 변은 화면 높이의 25% 이상(작은 사람을 과도하게 확대하지 않음)
 
 
-def union_crop(frame: np.ndarray, boxes: Sequence[Sequence[float]]) -> np.ndarray:
-    """창 안 사람 박스 합집합을 넓힌 정사각형으로 자른다. 박스가 없으면 화면 전체(학습과 같은 규칙)."""
+def crop_region(shape: Sequence[int], boxes: Sequence[Sequence[float]]) -> tuple[int, int, int]:
+    """창 안 사람 박스 합집합을 넓힌 정사각형 (x0, y0, 한 변). 박스가 없으면 한 변 0(= 화면 전체를 쓴다)."""
     if not len(boxes):
-        return frame
-    h, w = frame.shape[:2]
+        return 0, 0, 0
+    h, w = shape[:2]
     b = np.asarray(boxes, dtype=np.float32)
     x1, y1, x2, y2 = b[:, 0].min(), b[:, 1].min(), b[:, 2].max(), b[:, 3].max()
     side = max((x2 - x1) * (1 + 2 * CROP_PAD), (y2 - y1) * (1 + 2 * CROP_PAD), MIN_SIDE_RATIO * h)
     side = min(side, float(min(h, w)))
     cx = float(np.clip((x1 + x2) / 2, side / 2, w - side / 2))
     cy = float(np.clip((y1 + y2) / 2, side / 2, h - side / 2))
-    x0, y0 = int(cx - side / 2), int(cy - side / 2)
-    return frame[y0:y0 + int(side), x0:x0 + int(side)]
+    return int(cx - side / 2), int(cy - side / 2), int(side)
+
+
+def union_crop(frame: np.ndarray, boxes: Sequence[Sequence[float]]) -> np.ndarray:
+    """창 안 사람 박스 합집합을 넓힌 정사각형으로 자른다. 박스가 없으면 화면 전체(학습과 같은 규칙)."""
+    x0, y0, side = crop_region(frame.shape, boxes)
+    return frame if side <= 0 else frame[y0:y0 + side, x0:x0 + side]
 
 
 def largest_person_boxes(per_frame: Sequence[Sequence[tuple]]) -> List[Sequence[float]]:

@@ -43,13 +43,14 @@ class EventService:
         self,
         store_id: str | None = None,
         status: EventStatus | None = None,
+        limit: int | None = None,
     ) -> list[Event]:
         """저장소에 필터 조건을 전달해 사건 목록을 조회합니다."""
 
-        return self.repository.list_events(store_id=store_id, status=status)
+        return self.repository.list_events(store_id=store_id, status=status, limit=limit)
 
     def ingest(self, event: Event) -> Event:
-        """탐지 서비스 사건을 저장소에 넣고 재전송 시 기존 사건을 반환합니다."""
+        """저장소에서 탐지 UUID의 중복을 확인한 뒤 신규 사건 번호를 발급·저장합니다."""
 
         return self.repository.create(event)
 
@@ -73,6 +74,14 @@ class EventService:
         if event.source != 'behavior_model':
             raise ValueError('카메라 상태 사건에는 VLM 결과를 저장할 수 없습니다.')
         return self.repository.update_vlm(event_id, vlm)
+
+    def update_media(self, event_id: str, media_type: str, uri: str) -> Event:
+        """기존 행동 사건에 저장이 끝난 영상 또는 대표 이미지를 연결합니다."""
+
+        event = self.get_event(event_id)
+        if event.source != 'behavior_model':
+            raise ValueError('카메라 상태 사건에는 미디어를 저장할 수 없습니다.')
+        return self.repository.update_media(event_id, media_type, uri)
 
     def change_status(
         self,

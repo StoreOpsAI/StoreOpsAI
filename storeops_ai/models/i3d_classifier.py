@@ -25,7 +25,9 @@ import numpy as np
 from config.config import (
     CATEGORIES, CATEGORY_THRESHOLDS, I3D_WEIGHT_PATH, I3D_DEVICE, MODEL_LABEL_TO_CATEGORY,
     I3D_CROP_WEIGHT_PATH, I3D_STACK_PATH, I3D_USE_STACK,
+    USE_C1P, C1P_CROP_WEIGHT_PATH, C1P_POSE_HEAD_PATH, C1P_FUSION_PATH,
 )
+from models.pose_head import PoseHead
 from models.stack_head import StackHead
 
 logger = logging.getLogger("storeops_ai")
@@ -124,8 +126,17 @@ class I3DClassifier:
         self.crop_model = None   # 사람 크롭(C1) 모델과 A+C1 결합(스택). 없으면 A 단독
         self.stack: Optional[StackHead] = None
         self.missing_categories: List[str] = [c for c in CATEGORIES if c != "정상"]
+        self.pose_head: Optional[PoseHead] = None   # c1p 스택의 P(관절) 헤드
 
-        if path.is_file():
+        if USE_C1P and not explicit:   # C1+P: C1 S3D가 주 모델이고 A는 쓰지 않는다
+            path = Path(C1P_CROP_WEIGHT_PATH)
+            self.weight_path = str(path)
+            self._load(path)
+            self.crop_model = self.model
+            self.stack = StackHead(C1P_FUSION_PATH)
+            self.pose_head = PoseHead(Path(C1P_POSE_HEAD_PATH), self._device)
+            logger.info("C1+P 결합 사용: %s / %s / %s", C1P_CROP_WEIGHT_PATH, C1P_POSE_HEAD_PATH, C1P_FUSION_PATH)
+        elif path.is_file():
             self._load(path)
             if I3D_USE_STACK and path.resolve() == Path(I3D_WEIGHT_PATH).resolve():   # 기본(최종 A) 가중치일 때만 C1·스택을 함께 쓴다. 다른 가중치를 지정하면 그 모델 단독
                 self.crop_model = _load_checkpoint(Path(I3D_CROP_WEIGHT_PATH), self._device)["model"]
@@ -158,6 +169,10 @@ class I3DClassifier:
     @property
     def has_stack(self) -> bool:
         return self.crop_model is not None and self.stack is not None
+
+    @property
+    def has_pose(self) -> bool:
+        return self.pose_head is not None and self.stack is not None
 
     # I3D에서 출력되는 5개 서비스 클래스의 점수가
     # 올바른 형식인지 확인하는 함수
@@ -268,6 +283,16 @@ class I3DClassifier:
         if not self.has_stack:
             raise I3DNotConfiguredError("A+C1 스택이 로드되지 않았습니다.")
         probs = self.stack.probs(self._logits(self.model, full_frames), self._logits(self.crop_model, crop_frames))
+        scores = {c: 0.0 for c in CATEGORIES}
+        scores.update({c: min(max(p, 0.0), 1.0) for c, p in probs.items() if c in scores})
+        scores["정상"] = max(0.0, 1.0 - max(probs.values()))
+        return self.decide(scores)
+
+    def predict_c1p(self, crop_frames: List[np.ndarray], pose_window: np.ndarray):
+        """C1(사람 크롭) S3D 로짓과 P(관절 창 12x53) 로짓을 동적 결합해 행동별 점수를 만든다(연구 export_c1p.py와 같은 식)."""
+        if not self.has_pose:
+            raise I3DNotConfiguredError("C1+P 결합이 로드되지 않았습니다.")
+        probs = self.stack.probs(self._logits(self.model, crop_frames), self.pose_head.logits(pose_window).astype(np.float64))
         scores = {c: 0.0 for c in CATEGORIES}
         scores.update({c: min(max(p, 0.0), 1.0) for c, p in probs.items() if c in scores})
         scores["정상"] = max(0.0, 1.0 - max(probs.values()))

@@ -2,6 +2,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import cv2
+import numpy as np
 
 
 def save_frames(frames, path, fps):
@@ -48,6 +49,21 @@ def representative_indices(n):
     if n == 1: return [0, 0, 0]
     if n == 2: return [0, 1, 1]
     return [0, n // 2, n - 1]
+
+
+def save_all_images(frames, out_dir, stem, limit=0):
+    """VLM 확인용: 클립 프레임을 시간 순서대로 전부(limit>0이면 고른 간격으로 limit장) JPEG로 저장한다."""
+    if not frames:
+        raise ValueError("VLM 확인용 프레임이 없습니다.")
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    idxs = range(len(frames)) if limit <= 0 or len(frames) <= limit else np.linspace(0, len(frames) - 1, limit).round().astype(int)
+    paths = []
+    for i, idx in enumerate(idxs, 1):
+        p = out_dir / f"{stem}_vlm_{i:02d}.jpg"
+        cv2.imwrite(str(p), frames[int(idx)])
+        paths.append(str(p))
+    return paths
 
 
 def save_representative_images(frames, out_dir, stem):

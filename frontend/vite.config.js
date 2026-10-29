@@ -11,12 +11,6 @@ export default defineConfig({
         target: process.env.VITE_API_PROXY_TARGET || "http://localhost:8000",
         changeOrigin: true,
       },
-      "/detector": {
-        target:
-          process.env.VITE_DETECTOR_PROXY_TARGET || "http://localhost:8100",
-        changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/detector/, ""),
-      },
     },
   },
   preview: {
