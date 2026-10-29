@@ -304,3 +304,10 @@ python -m pytest -q
 작업 규칙, 브랜치·커밋 관례, 서비스별 검증 절차는 [AGENTS.md](AGENTS.md)를 참고하세요. 변경 후 해당 서비스의 lint·build 또는 테스트를 실행합니다.
 
 현재 저장소에는 별도 라이선스가 지정되어 있지 않습니다.
+
+
+## 연구 브랜치 구조 및 검증
+
+`research/video-modeling`은 서비스 코드를 main 기준으로 동기화하고 `video_research/` 연구 원본을 보존한다.
+비최종 자료의 분류와 위치 유지 이유는 [analysis 안내](analysis/README.md), 입력 차이와 재현성 제한은 [연구·서비스 정합성](docs/RESEARCH_SERVICE_COMPATIBILITY.md), 다중 PC 실행은 [배치 안내](THREE_PC_DOCKER_SETUP.md)를 참조한다.
+연구 기록의 과거 4클래스 서비스 설명과 현재 C1+(P+R) 6클래스 기본값을 구분한다.
