@@ -40,7 +40,7 @@
 
 ## 실행 순서
 
-1. 백엔드 PC의 저장소 루트 `.env`에 기존 README의 수요·Q&A 설정과 `STOREOPS_AI_INGEST_TOKENS_JSON={"<탐지-토큰>":"<매장-ID>"}`를 설정한다. 같은 PC에서 `docker compose up -d --build postgres demand backend`를 실행한다. Qwen VLM이 필요하고 GPU가 준비되면 `qwen-vllm`도 실행한다.
+1. 백엔드 PC의 저장소 루트 `.env`에 기존 README의 수요·Q&A 설정과 `STOREOPS_AI_INGEST_TOKENS_JSON={"<탐지-토큰>":"<매장-ID>"}`, `STOREOPS_AI_INGEST_TOKEN=<탐지-토큰>`을 설정한다. 기존 Compose는 전체 서비스의 환경변수를 먼저 치환하므로 탐지 서비스를 실행하지 않는 백엔드 PC에도 `STOREOPS_AI_INGEST_TOKEN`이 필요하다. 같은 PC에서 `docker compose up -d --build postgres demand backend`를 실행한다. Qwen VLM이 필요하고 GPU가 준비되면 `qwen-vllm`도 실행한다.
 2. 백엔드 PC에서 `http://localhost:8000/api/health`를 확인한 뒤 Tailscale Serve로 로컬 8000 포트를 공유한다. 예: `tailscale serve 8000`. 출력된 HTTPS URL의 **호스트 이름만** 아래 `<백엔드-주소>`에 넣는다.
 3. 웹캠·탐지 PC의 저장소 루트 `.env`에 아래 값을 설정하고 `docker compose -f docker-compose.detector.yml up -d --build`를 실행한다. 토큰은 백엔드 매핑의 키와 같아야 한다.
 
